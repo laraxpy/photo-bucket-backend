@@ -2,9 +2,9 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/laraxpy/go-backend-starter/internal/apperror"
-	"github.com/laraxpy/go-backend-starter/internal/handler/health"
-	"github.com/laraxpy/go-backend-starter/internal/handler/test_ping_pong"
+	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/health"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/test_ping_pong"
 )
 
 func RegisterRoutes(r *gin.Engine) {

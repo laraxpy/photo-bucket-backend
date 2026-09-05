@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"github.com/laraxpy/go-backend-starter/internal/apperror"
+	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
 )

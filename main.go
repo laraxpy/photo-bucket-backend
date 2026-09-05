@@ -5,10 +5,10 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"github.com/laraxpy/go-backend-starter/internal/config"
-	"github.com/laraxpy/go-backend-starter/internal/middleware"
-	"github.com/laraxpy/go-backend-starter/internal/router"
-	"github.com/laraxpy/go-backend-starter/internal/server"
+	"github.com/laraxpy/photo-bucket-backend/internal/config"
+	"github.com/laraxpy/photo-bucket-backend/internal/middleware"
+	"github.com/laraxpy/photo-bucket-backend/internal/router"
+	"github.com/laraxpy/photo-bucket-backend/internal/server"
 )
 
 func main() {

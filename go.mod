@@ -1,4 +1,4 @@
-module github.com/laraxpy/go-backend-starter
+module github.com/laraxpy/photo-bucket-backend
 
 go 1.26.2
 

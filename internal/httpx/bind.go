@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"github.com/laraxpy/go-backend-starter/internal/apperror"
+	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
 )
 
 func BindAndValidate(c *gin.Context, req any) bool {

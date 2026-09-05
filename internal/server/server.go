@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/laraxpy/go-backend-starter/internal/config"
+	"github.com/laraxpy/photo-bucket-backend/internal/config"
 )
 
 func New(r *gin.Engine, cfg *config.Config) *http.Server{
