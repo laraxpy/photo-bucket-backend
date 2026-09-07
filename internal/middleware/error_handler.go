@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/laraxpy/go-backend-starter/internal/apperror"
+	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
 )
 
 func ErrorHandler() gin.HandlerFunc {

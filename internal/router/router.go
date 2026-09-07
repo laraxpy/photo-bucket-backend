@@ -2,21 +2,21 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/laraxpy/go-backend-starter/internal/apperror"
-	"github.com/laraxpy/go-backend-starter/internal/handler/health"
-	"github.com/laraxpy/go-backend-starter/internal/handler/test_ping_pong"
+	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/health"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/test_ping_pong"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/user"
 )
 
-func RegisterRoutes(r *gin.Engine) {
+func RegisterRoutes(r *gin.Engine, userHandler *user.UserHandler) {
 	test_ping_pong.RegisterRoutes(r)
 	health.RegisterRoutes(r)
-	
+	user.RegisterRoutes(r, userHandler)
 
-
-	r.NoMethod(func(c *gin.Context){
+	r.NoMethod(func(c *gin.Context) {
 		c.Error(apperror.NoMethod("Metodo no permitido", nil))
 	})
-	r.NoRoute(func(c *gin.Context){
+	r.NoRoute(func(c *gin.Context) {
 		c.Error(apperror.NotFound("Page Not Found", nil))
 	})
 }
