@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/laraxpy/photo-bucket-backend/internal/httpx"
-	service "github.com/laraxpy/photo-bucket-backend/internal/service/user_service"
+	"github.com/laraxpy/photo-bucket-backend/internal/service"
 )
 
 type UserHandler struct {

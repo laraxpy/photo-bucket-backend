@@ -7,11 +7,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/laraxpy/photo-bucket-backend/internal/config"
 	"github.com/laraxpy/photo-bucket-backend/internal/database"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/file"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/user"
 	"github.com/laraxpy/photo-bucket-backend/internal/middleware"
 	"github.com/laraxpy/photo-bucket-backend/internal/router"
 	"github.com/laraxpy/photo-bucket-backend/internal/server"
-	service "github.com/laraxpy/photo-bucket-backend/internal/service/user_service"
+	"github.com/laraxpy/photo-bucket-backend/internal/service"
+	"github.com/laraxpy/photo-bucket-backend/internal/storage"
 	"github.com/laraxpy/photo-bucket-backend/internal/store"
 )
 
@@ -23,6 +25,10 @@ func main() {
 	userStore := store.NewUserStore(db)
 	userService := service.NewUserService(userStore, cfg.JWTSecret)
 	userHandler := user.NewUserHandler(userService)
+	minioClient := storage.Connect(cfg)
+	fileStore := store.NewFileStore(db)
+	fileService := service.NewFileService(fileStore, minioClient, cfg.MinioBucket)
+	fileHandler := file.NewFileHandler(fileService)
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
 	r.Use(gin.Recovery())
@@ -30,7 +36,7 @@ func main() {
 	r.Use(middleware.CORS())
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.RateLimiter())
-	router.RegisterRoutes(r, userHandler)
+	router.RegisterRoutes(r, userHandler, fileHandler, cfg.JWTSecret)
 	srv := server.New(r, cfg)
 	server.Run(srv)
 }
