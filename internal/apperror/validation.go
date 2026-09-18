@@ -15,16 +15,17 @@ func FromValidationError(err error) *AppError {
 	}
 
 	translatorMap := map[string]string{
-		"required":"Este campo es obligatorio",
-		"min":"Debe tener como minimo %s caracteres",
+		"required": "Este campo es obligatorio",
+		"min":      "Debe tener como minimo %s caracteres",
+		"max":      "Debe tener como maximo %s caracteres",
 	}
 	fields := make(map[string]string)
 
-	for _,fieldErr := range validationErrs{
-		message,exists := translatorMap[fieldErr.Tag()]
+	for _, fieldErr := range validationErrs {
+		message, exists := translatorMap[fieldErr.Tag()]
 		if !exists {
 			message = "Este campo no es valido"
-		}else if strings.Contains(message,"%"){
+		} else if strings.Contains(message, "%") {
 			message = fmt.Sprintf(message, fieldErr.Param())
 		}
 		fields[fieldErr.Field()] = message
