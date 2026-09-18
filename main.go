@@ -16,8 +16,18 @@ import (
 	"github.com/laraxpy/photo-bucket-backend/internal/service"
 	"github.com/laraxpy/photo-bucket-backend/internal/storage"
 	"github.com/laraxpy/photo-bucket-backend/internal/store"
+
+	_ "github.com/laraxpy/photo-bucket-backend/docs"
 )
 
+// @title						Photo Bucket Backend API
+// @version					1.0
+// @description				API para gestionar lectura y escritura de archivos multimedia (fotos) usando MinIO como almacenamiento de objetos.
+// @BasePath					/
+// @securityDefinitions.apikey	BearerAuth
+// @in							header
+// @name						Authorization
+// @description				Escribir "Bearer" seguido de un espacio y el token JWT obtenido en /user/login.
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)

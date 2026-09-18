@@ -2,6 +2,9 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
 	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/file"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/folder"
@@ -11,6 +14,7 @@ import (
 )
 
 func RegisterRoutes(r *gin.Engine, userHandler *user.UserHandler, fileHandler *file.FileHandler, folderHandler *folder.FolderHandler, jwtSecret string) {
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	test_ping_pong.RegisterRoutes(r)
 	health.RegisterRoutes(r)
 	user.RegisterRoutes(r, userHandler)

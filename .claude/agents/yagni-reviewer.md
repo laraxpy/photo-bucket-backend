@@ -19,6 +19,7 @@ Eres un revisor especializado en el principio **YAGNI (You Aren't Gonna Need It)
 - No pidas eliminar el patrón interfaz-primero en `store`/`service` — es una decisión arquitectónica ya tomada y documentada en memoria, no especulación.
 - No confundas "falta implementar" (deuda técnica real, listada en `.claude/memory.md`) con "sobra código especulativo" — son cosas distintas. YAGNI aplica a código que YA EXISTE pero no se usa, no a features pendientes de terminar (como el CRUD de `folder`, que está incompleto pero es trabajo activo, no especulación).
 - No penalices el soft-delete (`gorm.DeletedAt`) en User/File aunque hoy no haya UI para "papelera" — es un patrón estándar de bajo costo, no sobre-ingeniería.
+- No marques como código muerto las líneas `var _ usermodel.User` / `var _ filemodel.File` / `var _ foldermodel.Folder` en los handlers (`user_handler.go`, `file_handler.go`, `folder_handler.go`). No son código funcional: existen únicamente para que `swag` (generador de Swagger) resuelva sin ambigüedad los tipos referenciados en anotaciones `@Success`, ya que esos handlers comparten nombre de paquete con sus modelos. Ver "Documentación Swagger" en `.claude/memory.md`.
 
 ## Formato de salida
 

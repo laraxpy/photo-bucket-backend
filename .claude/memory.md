@@ -24,7 +24,19 @@ Por eso el diseño de contratos HTTP (JSON shape, códigos de error, auth) impor
 - `gin-contrib/cors` para CORS.
 - `slog` (stdlib) con JSON handler para logging estructurado.
 - `godotenv` para cargar `.env` en desarrollo.
+- `swaggo/swag` + `swaggo/gin-swagger` + `swaggo/files` para documentación OpenAPI/Swagger (ver sección "Documentación Swagger" abajo).
 - Docker: hay `dockerfile` para la API y `minio/docker-compose.yaml` solo para levantar MinIO local (admin/admin12345, puertos 9000/9001). No hay compose que levante API+DB+MinIO juntos todavía.
+
+## Documentación Swagger
+
+La API expone documentación OpenAPI generada con `swaggo/swag` a partir de comentarios `@Summary`/`@Param`/`@Success`/etc. encima de cada handler.
+
+- UI interactiva: `GET /swagger/index.html` (montada en `internal/router/router.go`, registrada antes que el resto de las rutas). Spec crudo en `GET /swagger/doc.json`.
+- Anotaciones generales de la API (`@title`, `@BasePath`, `@securityDefinitions.apikey BearerAuth`) están arriba de `func main()` en `main.go`. El esquema de auth documentado es `BearerAuth` (header `Authorization: Bearer <token>`) — cada handler protegido por `AuthRequired` lleva `@Security BearerAuth`.
+- Los archivos generados viven en `docs/` (`docs.go`, `swagger.json`, `swagger.yaml`) y **se commitean** al repo (no hay CI que los regenere todavía). `main.go` los importa con blank import (`_ "github.com/laraxpy/photo-bucket-backend/docs"`) para que su `init()` registre el spec.
+- **Regenerar después de tocar cualquier anotación o agregar un endpoint nuevo**: `swag init -g main.go --output docs --parseDependency --parseInternal`. Las flags `--parseDependency --parseInternal` son necesarias porque los modelos usan `gorm.DeletedAt` (tipo externo) — sin ellas `swag` falla con `cannot find type definition: gorm.DeletedAt`.
+- **Gotcha de nombres de paquete**: `internal/handler/user`, `internal/handler/file` e `internal/handler/folder` se llaman igual que sus paquetes de modelo (`internal/model/user`, `/file`, `/folder`). Para que `swag` resuelva sin ambigüedad a qué paquete se refiere una anotación como `@Success 200 {object} user.User`, cada handler importa el modelo con un alias (`usermodel`, `filemodel`, `foldermodel`) y tiene una línea `var _ usermodel.User` (idem file/folder) solo para forzar esa resolución — no es código funcional, es exclusivamente para desambiguar el parser de swag. No lo elimines pensando que es código muerto.
+- `apperror.ErrorResponse`/`apperror.ErrorBody` (`internal/apperror/response.go`) son tipos **solo de documentación**: reflejan el envelope JSON real que arma `middleware.ErrorHandler`, pero el código de errores sigue construyendo la respuesta con `gin.H` en runtime, no con estos structs. Se usan únicamente en las anotaciones `@Failure` para que Swagger muestre el shape correcto.
 
 ## Arquitectura (capas)
 

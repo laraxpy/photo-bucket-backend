@@ -1,0 +1,583 @@
+basePath: /
+definitions:
+  apperror.ErrorBody:
+    properties:
+      code:
+        $ref: '#/definitions/apperror.ErrorCode'
+      fields:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  apperror.ErrorCode:
+    enum:
+    - BAD_REQUEST
+    - UNAUTHORIZED
+    - FORBIDDEN
+    - NOT_FOUND
+    - CONFLICT
+    - VALIDATION_ERROR
+    - INTERNAL_ERROR
+    - NO_METHOD
+    - TOO_MANY_REQUEST
+    type: string
+    x-enum-varnames:
+    - CodeBadRequest
+    - CodeUnauthorized
+    - CodeForbidden
+    - CodeNotFound
+    - CodeConflict
+    - CodeValidation
+    - CodeInternal
+    - CodeNoMethod
+    - CodeTooManyRequest
+  apperror.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/apperror.ErrorBody'
+    type: object
+  file.File:
+    properties:
+      bucketName:
+        type: string
+      checksum:
+        type: string
+      contentType:
+        type: string
+      createdAt:
+        type: string
+      deletedAt:
+        $ref: '#/definitions/gorm.DeletedAt'
+      etag:
+        type: string
+      folderId:
+        type: string
+      height:
+        type: integer
+      id:
+        type: string
+      isPublic:
+        type: boolean
+      objectKey:
+        type: string
+      originalName:
+        type: string
+      sizeBytes:
+        type: integer
+      status:
+        $ref: '#/definitions/file.FileStatus'
+      updatedAt:
+        type: string
+      userId:
+        type: string
+      width:
+        type: integer
+    type: object
+  file.FileStatus:
+    enum:
+    - pending
+    - uploaded
+    - failed
+    - deleted
+    type: string
+    x-enum-varnames:
+    - FileStatusPending
+    - FileStatusUploaded
+    - FileStatusFailed
+    - FileStatusDeleted
+  folder.CreateFolderRequest:
+    properties:
+      name:
+        maxLength: 100
+        minLength: 1
+        type: string
+      parentId:
+        type: string
+    required:
+    - name
+    type: object
+  folder.Folder:
+    properties:
+      createdAt:
+        type: string
+      deletedAt:
+        $ref: '#/definitions/gorm.DeletedAt'
+      id:
+        type: string
+      name:
+        type: string
+      parentId:
+        type: string
+      updatedAt:
+        type: string
+      userId:
+        type: string
+    type: object
+  folder.MoveFolderRequest:
+    properties:
+      parentId:
+        type: string
+    type: object
+  folder.RenameFolderRequest:
+    properties:
+      name:
+        maxLength: 100
+        minLength: 1
+        type: string
+    required:
+    - name
+    type: object
+  github_com_laraxpy_photo-bucket-backend_internal_model_user.User:
+    properties:
+      createdAt:
+        type: string
+      deletedAt:
+        $ref: '#/definitions/gorm.DeletedAt'
+      email:
+        type: string
+      id:
+        type: string
+      isActive:
+        type: boolean
+      name:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  gorm.DeletedAt:
+    properties:
+      time:
+        type: string
+      valid:
+        description: Valid is true if Time is not NULL
+        type: boolean
+    type: object
+  user.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  user.RegisterRequest:
+    properties:
+      email:
+        type: string
+      name:
+        maxLength: 50
+        minLength: 3
+        type: string
+      password:
+        maxLength: 50
+        minLength: 8
+        type: string
+    required:
+    - email
+    - name
+    - password
+    type: object
+info:
+  contact: {}
+  description: API para gestionar lectura y escritura de archivos multimedia (fotos)
+    usando MinIO como almacenamiento de objetos.
+  title: Photo Bucket Backend API
+  version: "1.0"
+paths:
+  /files/list:
+    get:
+      description: Lista los archivos del usuario autenticado, opcionalmente filtrados
+        por carpeta
+      parameters:
+      - description: Filtrar por carpeta
+        in: query
+        name: folderId
+        type: string
+      - default: 20
+        description: Cantidad maxima de resultados
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: Desplazamiento para paginacion
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/file.File'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Listar archivos del usuario
+      tags:
+      - files
+  /files/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Sube un archivo multimedia a MinIO y guarda sus metadatos. Opcionalmente
+        puede asociarse a una carpeta del usuario.
+      parameters:
+      - description: Archivo a subir
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: ID de la carpeta destino (vacio = raiz)
+        in: formData
+        name: folderId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/file.File'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: la carpeta indicada no existe o no pertenece al usuario
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Subir un archivo
+      tags:
+      - files
+  /folders:
+    get:
+      description: Lista las carpetas del usuario autenticado. Sin parentId, lista
+        las carpetas raiz
+      parameters:
+      - description: Listar el contenido de esta carpeta
+        in: query
+        name: parentId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/folder.Folder'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: parentId no existe o no pertenece al usuario
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Listar carpetas
+      tags:
+      - folders
+    post:
+      consumes:
+      - application/json
+      description: Crea una carpeta para el usuario autenticado, opcionalmente dentro
+        de otra carpeta (parentId)
+      parameters:
+      - description: Datos de la carpeta
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/folder.CreateFolderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/folder.Folder'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: parentId no existe o no pertenece al usuario
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "409":
+          description: ya existe una carpeta con ese nombre en el mismo padre
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Crear una carpeta
+      tags:
+      - folders
+  /folders/{id}:
+    delete:
+      description: Elimina la carpeta si esta vacia. Si tiene subcarpetas o archivos,
+        devuelve 409
+      parameters:
+      - description: ID de la carpeta
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: sin contenido
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "409":
+          description: la carpeta tiene subcarpetas o archivos
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Eliminar una carpeta
+      tags:
+      - folders
+    get:
+      parameters:
+      - description: ID de la carpeta
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/folder.Folder'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Obtener una carpeta
+      tags:
+      - folders
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: ID de la carpeta
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Nuevo nombre
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/folder.RenameFolderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/folder.Folder'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "409":
+          description: ya existe una carpeta con ese nombre en el mismo padre
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Renombrar una carpeta
+      tags:
+      - folders
+  /folders/{id}/move:
+    patch:
+      consumes:
+      - application/json
+      description: Cambia el padre de la carpeta. parentId vacio la mueve a la raiz
+      parameters:
+      - description: ID de la carpeta
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Nuevo padre
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/folder.MoveFolderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/folder.Folder'
+        "400":
+          description: parentId invalido o crearia un ciclo
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "409":
+          description: ya existe una carpeta con ese nombre en el destino
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Mover una carpeta
+      tags:
+      - folders
+  /health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Estado del servidor
+      tags:
+      - health
+  /user/login:
+    post:
+      consumes:
+      - application/json
+      description: Valida las credenciales y devuelve un token JWT
+      parameters:
+      - description: Credenciales
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/user.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      summary: Iniciar sesion
+      tags:
+      - users
+  /user/register:
+    post:
+      consumes:
+      - application/json
+      description: Crea una cuenta de usuario nueva con la contraseña hasheada
+      parameters:
+      - description: Datos de registro
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/user.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_laraxpy_photo-bucket-backend_internal_model_user.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      summary: Registrar un nuevo usuario
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    description: Escribir "Bearer" seguido de un espacio y el token JWT obtenido en
+      /user/login.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
