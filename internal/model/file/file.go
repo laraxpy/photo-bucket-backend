@@ -19,6 +19,7 @@ const (
 type File struct {
 	ID           uuid.UUID      `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 	UserID       uuid.UUID      `json:"userId" gorm:"type:uuid;not null;index"`
+	FolderID     *uuid.UUID     `json:"folderId,omitempty" gorm:"type:uuid;index"`
 	BucketName   string         `json:"bucketName" gorm:"not null"`
 	ObjectKey    string         `json:"objectKey" gorm:"not null;uniqueIndex"`
 	ETag         string         `json:"etag"`

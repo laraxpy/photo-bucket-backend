@@ -14,12 +14,13 @@ type FileStore interface {
 	Create(ctx context.Context, f *file.File) error
 	GetByID(ctx context.Context, id uuid.UUID) (*file.File, error)
 	GetByObjectKey(ctx context.Context, objectKey string) (*file.File, error)
-	ListByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]file.File, error)
+	ListByUserID(ctx context.Context, userID uuid.UUID, folderID *uuid.UUID, limit, offset int) ([]file.File, error)
 	Update(ctx context.Context, f *file.File) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status file.FileStatus) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	HardDelete(ctx context.Context, id uuid.UUID) error
 	CountByUserID(ctx context.Context, userID uuid.UUID) (int64, error)
+	CountByFolderID(ctx context.Context, folderID uuid.UUID) (int64, error)
 }
 
 type gormFileStore struct {
@@ -61,10 +62,13 @@ func (s *gormFileStore) GetByObjectKey(ctx context.Context, objectKey string) (*
 	return &f, nil
 }
 
-func (s *gormFileStore) ListByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]file.File, error) {
+func (s *gormFileStore) ListByUserID(ctx context.Context, userID uuid.UUID, folderID *uuid.UUID, limit, offset int) ([]file.File, error) {
 	var files []file.File
-	err := s.db.WithContext(ctx).
-		Where("user_id = ?", userID).
+	query := s.db.WithContext(ctx).Where("user_id = ?", userID)
+	if folderID != nil {
+		query = query.Where("folder_id = ?", *folderID)
+	}
+	err := query.
 		Order("created_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -124,6 +128,18 @@ func (s *gormFileStore) CountByUserID(ctx context.Context, userID uuid.UUID) (in
 	err := s.db.WithContext(ctx).
 		Model(&file.File{}).
 		Where("user_id = ?", userID).
+		Count(&count).Error
+	if err != nil {
+		return 0, apperror.Internal(err)
+	}
+	return count, nil
+}
+
+func (s *gormFileStore) CountByFolderID(ctx context.Context, folderID uuid.UUID) (int64, error) {
+	var count int64
+	err := s.db.WithContext(ctx).
+		Model(&file.File{}).
+		Where("folder_id = ?", folderID).
 		Count(&count).Error
 	if err != nil {
 		return 0, apperror.Internal(err)

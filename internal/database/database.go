@@ -6,6 +6,7 @@ import (
 
 	"github.com/laraxpy/photo-bucket-backend/internal/config"
 	"github.com/laraxpy/photo-bucket-backend/internal/model/file"
+	"github.com/laraxpy/photo-bucket-backend/internal/model/folder"
 	"github.com/laraxpy/photo-bucket-backend/internal/model/user"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -20,7 +21,7 @@ func Connect(cfg *config.Config) *gorm.DB {
 		slog.Error("cannot connect to the database ", "error", err)
 		os.Exit(1)
 	}
-	err = db.AutoMigrate(user.User{}, file.File{})
+	err = db.AutoMigrate(user.User{}, folder.Folder{}, file.File{})
 	if err != nil {
 		slog.Error("Automigration failed", "error", err)
 		os.Exit(1)

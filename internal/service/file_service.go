@@ -13,20 +13,31 @@ import (
 )
 
 type FileService interface {
-	Upload(ctx context.Context, userId uuid.UUID, reader io.Reader, originalName, contentType string, size int64) (*file.File, error)
-	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]file.File, error)
+	Upload(ctx context.Context, userId uuid.UUID, folderID *uuid.UUID, reader io.Reader, originalName, contentType string, size int64) (*file.File, error)
+	ListByUser(ctx context.Context, userID uuid.UUID, folderID *uuid.UUID, limit, offset int) ([]file.File, error)
 }
 type fileService struct {
-	fileStore  store.FileStore
-	minio      *minio.Client
-	bucketName string
+	fileStore   store.FileStore
+	folderStore store.FolderStore
+	minio       *minio.Client
+	bucketName  string
 }
 
-func (s *fileService) ListByUser(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]file.File, error) {
-	return s.fileStore.ListByUserID(ctx, userID, limit, offset)
+func (s *fileService) ListByUser(ctx context.Context, userID uuid.UUID, folderID *uuid.UUID, limit int, offset int) ([]file.File, error) {
+	return s.fileStore.ListByUserID(ctx, userID, folderID, limit, offset)
 }
 
-func (s *fileService) Upload(ctx context.Context, userId uuid.UUID, reader io.Reader, originalName string, contentType string, size int64) (*file.File, error) {
+func (s *fileService) Upload(ctx context.Context, userId uuid.UUID, folderID *uuid.UUID, reader io.Reader, originalName string, contentType string, size int64) (*file.File, error) {
+	if folderID != nil {
+		targetFolder, err := s.folderStore.GetByID(ctx, *folderID)
+		if err != nil {
+			return nil, err
+		}
+		if targetFolder.UserID != userId {
+			return nil, apperror.NotFound("folder not found", nil)
+		}
+	}
+
 	objectKey := fmt.Sprintf("%s/%s", userId.String(), uuid.New().String())
 	_, err := s.minio.PutObject(ctx, s.bucketName, objectKey, reader, size, minio.PutObjectOptions{
 		ContentType: contentType,
@@ -36,6 +47,7 @@ func (s *fileService) Upload(ctx context.Context, userId uuid.UUID, reader io.Re
 	}
 	f := &file.File{
 		UserID:       userId,
+		FolderID:     folderID,
 		BucketName:   s.bucketName,
 		ObjectKey:    objectKey,
 		OriginalName: originalName,
@@ -49,6 +61,6 @@ func (s *fileService) Upload(ctx context.Context, userId uuid.UUID, reader io.Re
 	return f, nil
 }
 
-func NewFileService(fileStore store.FileStore, minioClient *minio.Client, bucketName string) FileService {
-	return &fileService{fileStore: fileStore, minio: minioClient, bucketName: bucketName}
+func NewFileService(fileStore store.FileStore, folderStore store.FolderStore, minioClient *minio.Client, bucketName string) FileService {
+	return &fileService{fileStore: fileStore, folderStore: folderStore, minio: minioClient, bucketName: bucketName}
 }

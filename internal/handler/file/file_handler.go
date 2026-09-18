@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
+	"github.com/laraxpy/photo-bucket-backend/internal/httpx"
 	"github.com/laraxpy/photo-bucket-backend/internal/service"
 )
 
@@ -25,22 +26,21 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		c.Error(apperror.BadRequest("no file provided", err))
 		return
 	}
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.Error(apperror.Internal(nil))
-		return
-	}
 
-	userIDStr, ok := userIDValue.(string)
-	if !ok {
-		c.Error(apperror.Internal(nil))
-		return
-	}
-
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := httpx.UserIDFromContext(c)
 	if err != nil {
-		c.Error(apperror.Internal(err))
+		c.Error(err)
 		return
+	}
+
+	var folderID *uuid.UUID
+	if folderIDStr := c.PostForm("folderId"); folderIDStr != "" {
+		parsed, err := uuid.Parse(folderIDStr)
+		if err != nil {
+			c.Error(apperror.BadRequest("invalid folderId", err))
+			return
+		}
+		folderID = &parsed
 	}
 
 	openedFile, err := fileHeader.Open()
@@ -52,6 +52,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 	uploadedFile, err := h.fileService.Upload(
 		c.Request.Context(),
 		userID,
+		folderID,
 		openedFile,
 		fileHeader.Filename,
 		fileHeader.Header.Get("Content-Type"),
@@ -66,20 +67,20 @@ func (h *FileHandler) Upload(c *gin.Context) {
 }
 
 func (h *FileHandler) List(c *gin.Context) {
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.Error(apperror.Internal(nil))
-		return
-	}
-	userIDStr, ok := userIDValue.(string)
-	if !ok {
-		c.Error(apperror.Internal(nil))
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := httpx.UserIDFromContext(c)
 	if err != nil {
-		c.Error(apperror.Internal(err))
+		c.Error(err)
 		return
+	}
+
+	var folderID *uuid.UUID
+	if folderIDStr := c.Query("folderId"); folderIDStr != "" {
+		parsed, err := uuid.Parse(folderIDStr)
+		if err != nil {
+			c.Error(apperror.BadRequest("invalid folderId", err))
+			return
+		}
+		folderID = &parsed
 	}
 
 	limitStr := c.DefaultQuery("limit", "20")
@@ -96,7 +97,7 @@ func (h *FileHandler) List(c *gin.Context) {
 		return
 	}
 
-	files, err := h.fileService.ListByUser(c.Request.Context(), userID, limit, offset)
+	files, err := h.fileService.ListByUser(c.Request.Context(), userID, folderID, limit, offset)
 	if err != nil {
 		c.Error(err)
 		return

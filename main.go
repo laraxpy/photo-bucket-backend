@@ -8,6 +8,7 @@ import (
 	"github.com/laraxpy/photo-bucket-backend/internal/config"
 	"github.com/laraxpy/photo-bucket-backend/internal/database"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/file"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/folder"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/user"
 	"github.com/laraxpy/photo-bucket-backend/internal/middleware"
 	"github.com/laraxpy/photo-bucket-backend/internal/router"
@@ -27,7 +28,10 @@ func main() {
 	userHandler := user.NewUserHandler(userService)
 	minioClient := storage.Connect(cfg)
 	fileStore := store.NewFileStore(db)
-	fileService := service.NewFileService(fileStore, minioClient, cfg.MinioBucket)
+	folderStore := store.NewFolderStore(db)
+	folderService := service.NewFolderService(folderStore, fileStore)
+	folderHandler := folder.NewFolderHandler(folderService)
+	fileService := service.NewFileService(fileStore, folderStore, minioClient, cfg.MinioBucket)
 	fileHandler := file.NewFileHandler(fileService)
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
@@ -36,7 +40,7 @@ func main() {
 	r.Use(middleware.CORS())
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.RateLimiter())
-	router.RegisterRoutes(r, userHandler, fileHandler, cfg.JWTSecret)
+	router.RegisterRoutes(r, userHandler, fileHandler, folderHandler, cfg.JWTSecret)
 	srv := server.New(r, cfg)
 	server.Run(srv)
 }
