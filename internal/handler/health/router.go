@@ -2,6 +2,6 @@ package health
 
 import "github.com/gin-gonic/gin"
 
-func RegisterRoutes(r *gin.Engine){
-	r.GET("/health", GetHealthStatus)
+func RegisterRoutes(r *gin.Engine, healthHandler *HealthHandler) {
+	r.GET("/health", healthHandler.GetHealthStatus)
 }

@@ -3,18 +3,22 @@ package config
 import (
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
+var defaultAllowedOrigins = []string{"http://localhost:4000"}
+
 type Config struct {
-	Port           string
-	DatabaseURL    string
-	MinioEndpoint  string
-	MinioAccessKey string
-	MinioSecretKey string
-	MinioBucket    string
-	JWTSecret      string
+	Port            string
+	DatabaseURL     string
+	MinioEndpoint   string
+	MinioAccessKey  string
+	MinioSecretKey  string
+	MinioBucket     string
+	JWTSecret       string
+	AllowedOrigins  []string
 }
 
 func Load() *Config {
@@ -30,5 +34,23 @@ func Load() *Config {
 		MinioSecretKey: os.Getenv("MINIO_SECRET_KEY"),
 		MinioBucket:    os.Getenv("MINIO_BUCKET"),
 		JWTSecret:      os.Getenv("JWT_SECRET"),
+		AllowedOrigins: parseOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
 	}
+}
+
+func parseOrigins(raw string) []string {
+	if raw == "" {
+		return defaultAllowedOrigins
+	}
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			origins = append(origins, trimmed)
+		}
+	}
+	if len(origins) == 0 {
+		return defaultAllowedOrigins
+	}
+	return origins
 }

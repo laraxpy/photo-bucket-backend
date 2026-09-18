@@ -117,19 +117,48 @@ CRUD completo de carpetas ligadas a archivos, implementado siguiendo el patrón 
 - **Nota importante sobre MinIO**: MinIO no tiene carpetas reales (es almacenamiento de objetos planos). El concepto de "carpeta" es puramente relacional en Postgres vía `Folder`/`File.FolderID` — el `ObjectKey` en el bucket sigue siendo plano (`"<userID>/<uuid>"`), no refleja la ruta de carpetas. Esto es intencional y no un bug.
 - Se extrajo `httpx.UserIDFromContext(c) (uuid.UUID, error)` (en `internal/httpx/context.go`) porque el patrón de leer/parsear `userID` del contexto Gin ya se repetía en `file_handler.go` y se iba a repetir en `folder_handler.go` — usado ahora en ambos handlers.
 
+## Feature: descarga y borrado de archivos
+
+Antes de esto, la API podía subir y listar metadata de archivos pero **no había forma de ver ni borrar un archivo** — el gap más grave para una app de fotos. Implementado en `feature/file-download-delete` (a partir de `main` ya con folders+swagger mergeados):
+
+- `internal/storage/minio.go`: `Connect` ahora verifica con `BucketExists` si el bucket de `cfg.MinioBucket` existe al arrancar, y si no, lo crea con `MakeBucket`. Antes solo abría el cliente sin validar nada, y el primer upload fallaba en runtime con un error poco claro si el bucket no existía.
+- `internal/service/file_service.go` (`FileService`): se agregaron `GetByID`, `DownloadURL`, `Delete`.
+  - `GetByID`/`DownloadURL` verifican ownership igual que en `folder_service.go` (404 si el archivo no es del usuario).
+  - `DownloadURL` genera una URL firmada de MinIO (`PresignedGetObject`, expira en 15 min vía `downloadURLExpiry`) — el cliente (Next.js/Flutter) la usa directo como `src` de imagen/descarga, sin proxying de bytes a través del backend Go.
+  - `Delete` primero hace `RemoveObject` en MinIO y **solo si eso tiene éxito** hace soft-delete del registro en Postgres (`fileStore.Delete`) — ese orden es deliberado: si se borrara la fila primero y `RemoveObject` fallara después, quedaría un objeto huérfano en MinIO sin metadata que lo referencie (más difícil de limpiar que el caso inverso).
+- `internal/handler/file/` — nuevas rutas, todas bajo `AuthRequired`:
+  - `GET /files/:id` — metadata de un archivo.
+  - `GET /files/:id/url` — `{"url": "..."}`, URL firmada válida 15 minutos.
+  - `DELETE /files/:id` — borra el objeto de MinIO + soft-delete en DB, `204` en éxito.
+- Probado end-to-end manualmente (registro → login → upload → get → url → fetch real del contenido vía la URL firmada → delete → get devuelve 404): funciona correctamente.
+- Sigue pendiente (no bloqueante): subida vía presigned PUT (hoy el upload sigue proxificando el archivo completo a través del backend con `PutObject`, ver deuda técnica #9 abajo).
+
+## Endurecimiento (`feature/api-hardening`, a partir de `feature/file-download-delete`)
+
+Cierra varios ítems de la lista de deuda técnica que no eran bloqueantes pero sí importantes:
+
+- **CORS configurable**: `config.Config.AllowedOrigins` ([]string) se carga desde `CORS_ALLOWED_ORIGINS` (comma-separated, `parseOrigins` en `internal/config/config.go` trimea espacios e ignora vacíos). Si la env var no está seteada, cae al default `http://localhost:4000` (no rompe el setup de dev existente). `middleware.CORS(allowedOrigins []string)` ahora recibe la lista en vez de tenerla hardcodeada.
+- **`.env.example` completo**: ahora lista las 8 variables reales que `config.Load()` lee (antes solo tenía 3).
+- **Health check real**: `health.GetHealthStatus` pasó de función suelta a método de `HealthHandler` (igual patrón que el resto de los handlers — recibe `*gorm.DB` y `*minio.Client` + `bucketName`). Verifica `db.DB().PingContext` y `minio.BucketExists` con timeout de 3s; devuelve `503` si algo falla, `200` con detalle por servicio si todo OK. `health.RegisterRoutes` y `router.RegisterRoutes` cambiaron de firma para recibir el handler.
+- **Paginación defensiva**: `FileHandler.List` ahora rechaza `limit` fuera de `[1, 100]` (const `maxListLimit` en `file_handler.go`) y `offset` negativo con `400 Bad Request`, en vez de dejarlos pasar sin validar.
+- **`FileService` ahora depende de una interfaz `MinioClient`** (definida en `file_service.go`, subconjunto de `*minio.Client`: `PutObject`, `PresignedGetObject`, `RemoveObject`) en vez de recibir el struct concreto. `NewFileService` no cambió el tipo que se le pasa desde `main.go` (`*minio.Client` sigue satisfaciendo la interfaz), pero ahora **`file_service_test.go` puede fakear MinIO sin un servidor real**. Este es el mismo motivo por el que `store` ya usaba interfaces — ahora se extiende al cliente externo de MinIO.
+- **Primera suite de tests del repo** (antes: cero cobertura). No es exhaustiva, pero cubre la lógica de negocio de mayor riesgo:
+  - `internal/apperror/apperror_test.go`: constructores, `Error()`/`Unwrap()`, `From`, `RequiredFieldsFrom`.
+  - `internal/middleware/auth_test.go`: `AuthRequired` — falta header, token basura, expirado, secret incorrecto, y explícitamente **rechazo de ataques `alg=none`** (se verificó que `golang-jwt/v5` ya lo bloquea por defecto; no hizo falta ningún fix). Importante: para testear `AuthRequired` en aislamiento hay que montar `middleware.ErrorHandler()` también en el router de test — `AuthRequired` solo hace `c.Error()+c.Abort()`, es `ErrorHandler` quien escribe el status HTTP real.
+  - `internal/service/folder_service_test.go`: duplicados, ownership (404 sin filtrar existencia), y sobre todo la **prevención de ciclos en `Move`** (mover una carpeta dentro de sí misma o de su propio descendiente).
+  - `internal/service/file_service_test.go`: ownership, que `Upload` no cree la fila en DB si `PutObject` falla, y que `Delete` **no borre la fila si `RemoveObject` falla** (verifica el orden documentado arriba).
+  - `internal/service/user_service_test.go`: registro con password hasheado, conflicto de email duplicado, login con JWT válido/inválido.
+  - `internal/service/service_fakes_test.go`: fakes en memoria de `FolderStore`/`FileStore` compartidos por los tests de servicio — no pegan a Postgres ni a MinIO real.
+  - `internal/config/config_test.go`: casos borde de `parseOrigins`.
+- Sigue faltando: tests de handlers (nivel HTTP/gin) y de los stores GORM reales (requerirían una DB de test, ej. testcontainers) — quedó fuera de este pase para no explotar el alcance.
+
 ## Bugs / deuda técnica conocida (para el agente Go+Gin y los reviewers)
 
-1. **Sin tests**: no existe ni un solo `_test.go` en el repo (incluye la nueva feature de folders).
-2. **Sin paginación defensiva**: `FileHandler.List` no valida límites superiores de `limit`/`offset` (podría pedirse `limit=999999999`).
-3. **CORS hardcodeado** a `http://localhost:4000` — cuando se conecte el frontend Next.js real habrá que mover esto a `config.Config` (variable de entorno) en vez de estar fijo en `middleware/cors.go`.
-4. **Rate limiter en memoria**: no sirve si se corren múltiples réplicas del servidor (no hay backend compartido tipo Redis).
-5. **Falta endpoint de descarga/lectura de archivos** (solo hay upload y list; no hay `GET /files/:id` para descargar o generar URL firmada de MinIO).
-6. **No hay presigned URLs de MinIO**: hoy todo pasa por el backend (subida directa vía `PutObject`), lo cual no escala para archivos grandes de fotos/video — considerar `PresignedPutObject`/`PresignedGetObject` a futuro.
-7. **`.env.example` incompleto**: falta documentar `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET` (sí están en `config.Config` pero no en el ejemplo).
-8. **Bucket no se crea/verifica en el arranque**: `storage.Connect` solo crea el cliente, no valida que el bucket exista (`BucketExists`/`MakeBucket`).
-9. **Health check superficial**: `GetHealthStatus` solo responde 200 fijo, no verifica conexión real a DB ni a MinIO.
-10. **Mensajes inconsistentes**: mezcla de español ("Archivo .env no econctrado" con typo, "Este campo es obligatorio") e inglés ("no file provided", "invalid credentials") en errores/logs.
-11. **Sin borrado en cascada de carpetas**: `DELETE /folders/:id` rechaza con 409 si la carpeta tiene subcarpetas o archivos (ver sección "Feature: carpetas" arriba) — decisión intencional, no un bug, pero puede sorprender si se espera borrado recursivo.
+1. **Cobertura de tests parcial**: hay suite para `apperror`, `middleware.AuthRequired`, `service` (folder/file/user) y `config.parseOrigins` (ver sección "Endurecimiento" arriba), pero **nada a nivel handler HTTP ni contra una DB/MinIO reales** (los stores GORM y el wiring de rutas siguen sin test).
+2. **Rate limiter en memoria**: no sirve si se corren múltiples réplicas del servidor (no hay backend compartido tipo Redis) — requiere agregar infraestructura nueva (Redis), no se hizo sin confirmar con el usuario.
+3. **Mensajes inconsistentes**: mezcla de español ("Archivo .env no econctrado" con typo, "Este campo es obligatorio") e inglés ("no file provided", "invalid credentials") en errores/logs. No se tocó porque requiere decidir el idioma objetivo de cara al usuario final (¿los mensajes de validación son para mostrarse tal cual en el frontend?).
+4. **Sin borrado en cascada de carpetas**: `DELETE /folders/:id` rechaza con 409 si la carpeta tiene subcarpetas o archivos (ver sección "Feature: carpetas" arriba) — decisión intencional, no un bug, pero puede sorprender si se espera borrado recursivo. Con `DELETE /files/:id` ya es posible vaciar una carpeta desde la API antes de borrarla.
+5. **Sin presigned PUT para upload**: la descarga ya usa URL firmada (`DownloadURL`), pero la subida (`POST /files/upload`) sigue proxificando el archivo completo a través del backend Go — no escala bien para archivos grandes de foto/video. Considerar `PresignedPutObject` a futuro si el volumen lo justifica.
 
 ## Qué NO cambiar sin preguntar
 

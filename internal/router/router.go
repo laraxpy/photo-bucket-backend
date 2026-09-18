@@ -13,10 +13,10 @@ import (
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/user"
 )
 
-func RegisterRoutes(r *gin.Engine, userHandler *user.UserHandler, fileHandler *file.FileHandler, folderHandler *folder.FolderHandler, jwtSecret string) {
+func RegisterRoutes(r *gin.Engine, userHandler *user.UserHandler, fileHandler *file.FileHandler, folderHandler *folder.FolderHandler, healthHandler *health.HealthHandler, jwtSecret string) {
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	test_ping_pong.RegisterRoutes(r)
-	health.RegisterRoutes(r)
+	health.RegisterRoutes(r, healthHandler)
 	user.RegisterRoutes(r, userHandler)
 	file.RegisterRoutes(r, fileHandler, jwtSecret)
 	folder.RegisterRoutes(r, folderHandler, jwtSecret)

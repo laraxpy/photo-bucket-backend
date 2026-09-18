@@ -40,7 +40,7 @@ const docTemplate = `{
                     {
                         "type": "integer",
                         "default": 20,
-                        "description": "Cantidad maxima de resultados",
+                        "description": "Cantidad maxima de resultados (1-100)",
                         "name": "limit",
                         "in": "query"
                     },
@@ -131,6 +131,156 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "la carpeta indicada no existe o no pertenece al usuario",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/files/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Obtener metadata de un archivo",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID del archivo",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/file.File"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Elimina el objeto en MinIO y marca el registro como borrado",
+                "tags": [
+                    "files"
+                ],
+                "summary": "Eliminar un archivo",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID del archivo",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "sin contenido"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/files/{id}/url": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Genera una URL firmada de MinIO valida por 15 minutos para ver o descargar el archivo",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Obtener URL de descarga",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID del archivo",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "url",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/apperror.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/apperror.ErrorResponse"
                         }
@@ -493,6 +643,7 @@ const docTemplate = `{
         },
         "/health": {
             "get": {
+                "description": "Verifica conectividad real con Postgres y MinIO, no solo que el proceso este vivo",
                 "produces": [
                     "application/json"
                 ],
@@ -503,6 +654,15 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {

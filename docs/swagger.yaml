@@ -188,6 +188,102 @@ info:
   title: Photo Bucket Backend API
   version: "1.0"
 paths:
+  /files/{id}:
+    delete:
+      description: Elimina el objeto en MinIO y marca el registro como borrado
+      parameters:
+      - description: ID del archivo
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: sin contenido
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Eliminar un archivo
+      tags:
+      - files
+    get:
+      parameters:
+      - description: ID del archivo
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/file.File'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Obtener metadata de un archivo
+      tags:
+      - files
+  /files/{id}/url:
+    get:
+      description: Genera una URL firmada de MinIO valida por 15 minutos para ver
+        o descargar el archivo
+      parameters:
+      - description: ID del archivo
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: url
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/apperror.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Obtener URL de descarga
+      tags:
+      - files
   /files/list:
     get:
       description: Lista los archivos del usuario autenticado, opcionalmente filtrados
@@ -198,7 +294,7 @@ paths:
         name: folderId
         type: string
       - default: 20
-        description: Cantidad maxima de resultados
+        description: Cantidad maxima de resultados (1-100)
         in: query
         name: limit
         type: integer
@@ -499,11 +595,19 @@ paths:
       - folders
   /health:
     get:
+      description: Verifica conectividad real con Postgres y MinIO, no solo que el
+        proceso este vivo
       produces:
       - application/json
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
           schema:
             additionalProperties:
               type: string

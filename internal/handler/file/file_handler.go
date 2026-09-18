@@ -1,6 +1,7 @@
 package file
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -12,6 +13,8 @@ import (
 	filemodel "github.com/laraxpy/photo-bucket-backend/internal/model/file"
 	"github.com/laraxpy/photo-bucket-backend/internal/service"
 )
+
+const maxListLimit = 100
 
 // El alias filemodel desambigua para swag: este paquete y internal/model/file
 // se llaman ambos "file", y las anotaciones @Success de abajo referencian el modelo.
@@ -93,7 +96,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 //	@Tags			files
 //	@Produce		json
 //	@Param			folderId	query		string	false	"Filtrar por carpeta"
-//	@Param			limit		query		int		false	"Cantidad maxima de resultados"	default(20)
+//	@Param			limit		query		int		false	"Cantidad maxima de resultados (1-100)"	default(20)
 //	@Param			offset		query		int		false	"Desplazamiento para paginacion"	default(0)
 //	@Success		200			{array}		filemodel.File
 //	@Failure		400			{object}	apperror.ErrorResponse
@@ -121,13 +124,13 @@ func (h *FileHandler) List(c *gin.Context) {
 	offsetStr := c.DefaultQuery("offset", "0")
 
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		c.Error(apperror.BadRequest("invalid limit", err))
+	if err != nil || limit < 1 || limit > maxListLimit {
+		c.Error(apperror.BadRequest(fmt.Sprintf("limit must be between 1 and %d", maxListLimit), err))
 		return
 	}
 	offset, err := strconv.Atoi(offsetStr)
-	if err != nil {
-		c.Error(apperror.BadRequest("invalid offset", err))
+	if err != nil || offset < 0 {
+		c.Error(apperror.BadRequest("offset must be a non-negative integer", err))
 		return
 	}
 
@@ -138,4 +141,103 @@ func (h *FileHandler) List(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, files)
+}
+
+// GetByID godoc
+//
+//	@Summary		Obtener metadata de un archivo
+//	@Tags			files
+//	@Produce		json
+//	@Param			id	path		string	true	"ID del archivo"
+//	@Success		200	{object}	filemodel.File
+//	@Failure		400	{object}	apperror.ErrorResponse
+//	@Failure		401	{object}	apperror.ErrorResponse
+//	@Failure		404	{object}	apperror.ErrorResponse
+//	@Security		BearerAuth
+//	@Router			/files/{id} [get]
+func (h *FileHandler) GetByID(c *gin.Context) {
+	userID, err := httpx.UserIDFromContext(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.Error(apperror.BadRequest("invalid file id", err))
+		return
+	}
+
+	f, err := h.fileService.GetByID(c.Request.Context(), userID, id)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	c.JSON(http.StatusOK, f)
+}
+
+// DownloadURL godoc
+//
+//	@Summary		Obtener URL de descarga
+//	@Description	Genera una URL firmada de MinIO valida por 15 minutos para ver o descargar el archivo
+//	@Tags			files
+//	@Produce		json
+//	@Param			id	path		string	true	"ID del archivo"
+//	@Success		200	{object}	map[string]string	"url"
+//	@Failure		400	{object}	apperror.ErrorResponse
+//	@Failure		401	{object}	apperror.ErrorResponse
+//	@Failure		404	{object}	apperror.ErrorResponse
+//	@Security		BearerAuth
+//	@Router			/files/{id}/url [get]
+func (h *FileHandler) DownloadURL(c *gin.Context) {
+	userID, err := httpx.UserIDFromContext(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.Error(apperror.BadRequest("invalid file id", err))
+		return
+	}
+
+	downloadURL, err := h.fileService.DownloadURL(c.Request.Context(), userID, id)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"url": downloadURL})
+}
+
+// Delete godoc
+//
+//	@Summary		Eliminar un archivo
+//	@Description	Elimina el objeto en MinIO y marca el registro como borrado
+//	@Tags			files
+//	@Param			id	path	string	true	"ID del archivo"
+//	@Success		204	"sin contenido"
+//	@Failure		400	{object}	apperror.ErrorResponse
+//	@Failure		401	{object}	apperror.ErrorResponse
+//	@Failure		404	{object}	apperror.ErrorResponse
+//	@Security		BearerAuth
+//	@Router			/files/{id} [delete]
+func (h *FileHandler) Delete(c *gin.Context) {
+	userID, err := httpx.UserIDFromContext(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.Error(apperror.BadRequest("invalid file id", err))
+		return
+	}
+
+	if err := h.fileService.Delete(c.Request.Context(), userID, id); err != nil {
+		c.Error(err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
