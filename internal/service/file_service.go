@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
@@ -12,9 +14,14 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
+const downloadURLExpiry = 15 * time.Minute
+
 type FileService interface {
 	Upload(ctx context.Context, userId uuid.UUID, folderID *uuid.UUID, reader io.Reader, originalName, contentType string, size int64) (*file.File, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, folderID *uuid.UUID, limit, offset int) ([]file.File, error)
+	GetByID(ctx context.Context, userID, id uuid.UUID) (*file.File, error)
+	DownloadURL(ctx context.Context, userID, id uuid.UUID) (string, error)
+	Delete(ctx context.Context, userID, id uuid.UUID) error
 }
 type fileService struct {
 	fileStore   store.FileStore
@@ -59,6 +66,43 @@ func (s *fileService) Upload(ctx context.Context, userId uuid.UUID, folderID *uu
 		return nil, err
 	}
 	return f, nil
+}
+
+func (s *fileService) GetByID(ctx context.Context, userID, id uuid.UUID) (*file.File, error) {
+	f, err := s.fileStore.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if f.UserID != userID {
+		return nil, apperror.NotFound("file not found", nil)
+	}
+	return f, nil
+}
+
+func (s *fileService) DownloadURL(ctx context.Context, userID, id uuid.UUID) (string, error) {
+	f, err := s.GetByID(ctx, userID, id)
+	if err != nil {
+		return "", err
+	}
+
+	presignedURL, err := s.minio.PresignedGetObject(ctx, f.BucketName, f.ObjectKey, downloadURLExpiry, url.Values{})
+	if err != nil {
+		return "", apperror.Internal(err)
+	}
+	return presignedURL.String(), nil
+}
+
+func (s *fileService) Delete(ctx context.Context, userID, id uuid.UUID) error {
+	f, err := s.GetByID(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+
+	if err := s.minio.RemoveObject(ctx, f.BucketName, f.ObjectKey, minio.RemoveObjectOptions{}); err != nil {
+		return apperror.Internal(err)
+	}
+
+	return s.fileStore.Delete(ctx, f.ID)
 }
 
 func NewFileService(fileStore store.FileStore, folderStore store.FolderStore, minioClient *minio.Client, bucketName string) FileService {
