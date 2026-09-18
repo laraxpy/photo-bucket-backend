@@ -1,6 +1,7 @@
 package file
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -12,6 +13,8 @@ import (
 	filemodel "github.com/laraxpy/photo-bucket-backend/internal/model/file"
 	"github.com/laraxpy/photo-bucket-backend/internal/service"
 )
+
+const maxListLimit = 100
 
 // El alias filemodel desambigua para swag: este paquete y internal/model/file
 // se llaman ambos "file", y las anotaciones @Success de abajo referencian el modelo.
@@ -93,7 +96,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 //	@Tags			files
 //	@Produce		json
 //	@Param			folderId	query		string	false	"Filtrar por carpeta"
-//	@Param			limit		query		int		false	"Cantidad maxima de resultados"	default(20)
+//	@Param			limit		query		int		false	"Cantidad maxima de resultados (1-100)"	default(20)
 //	@Param			offset		query		int		false	"Desplazamiento para paginacion"	default(0)
 //	@Success		200			{array}		filemodel.File
 //	@Failure		400			{object}	apperror.ErrorResponse
@@ -121,13 +124,13 @@ func (h *FileHandler) List(c *gin.Context) {
 	offsetStr := c.DefaultQuery("offset", "0")
 
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		c.Error(apperror.BadRequest("invalid limit", err))
+	if err != nil || limit < 1 || limit > maxListLimit {
+		c.Error(apperror.BadRequest(fmt.Sprintf("limit must be between 1 and %d", maxListLimit), err))
 		return
 	}
 	offset, err := strconv.Atoi(offsetStr)
-	if err != nil {
-		c.Error(apperror.BadRequest("invalid offset", err))
+	if err != nil || offset < 0 {
+		c.Error(apperror.BadRequest("offset must be a non-negative integer", err))
 		return
 	}
 

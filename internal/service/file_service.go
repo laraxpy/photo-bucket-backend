@@ -16,6 +16,15 @@ import (
 
 const downloadURLExpiry = 15 * time.Minute
 
+// MinioClient is the subset of *minio.Client that FileService depends on.
+// Defining it here (instead of taking *minio.Client directly) lets tests
+// fake the MinIO interaction without a real server.
+type MinioClient interface {
+	PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
+	PresignedGetObject(ctx context.Context, bucketName, objectName string, expiry time.Duration, reqParams url.Values) (*url.URL, error)
+	RemoveObject(ctx context.Context, bucketName, objectName string, opts minio.RemoveObjectOptions) error
+}
+
 type FileService interface {
 	Upload(ctx context.Context, userId uuid.UUID, folderID *uuid.UUID, reader io.Reader, originalName, contentType string, size int64) (*file.File, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, folderID *uuid.UUID, limit, offset int) ([]file.File, error)
@@ -26,7 +35,7 @@ type FileService interface {
 type fileService struct {
 	fileStore   store.FileStore
 	folderStore store.FolderStore
-	minio       *minio.Client
+	minio       MinioClient
 	bucketName  string
 }
 
@@ -105,6 +114,6 @@ func (s *fileService) Delete(ctx context.Context, userID, id uuid.UUID) error {
 	return s.fileStore.Delete(ctx, f.ID)
 }
 
-func NewFileService(fileStore store.FileStore, folderStore store.FolderStore, minioClient *minio.Client, bucketName string) FileService {
+func NewFileService(fileStore store.FileStore, folderStore store.FolderStore, minioClient MinioClient, bucketName string) FileService {
 	return &fileService{fileStore: fileStore, folderStore: folderStore, minio: minioClient, bucketName: bucketName}
 }

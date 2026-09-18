@@ -294,7 +294,7 @@ paths:
         name: folderId
         type: string
       - default: 20
-        description: Cantidad maxima de resultados
+        description: Cantidad maxima de resultados (1-100)
         in: query
         name: limit
         type: integer
@@ -595,11 +595,19 @@ paths:
       - folders
   /health:
     get:
+      description: Verifica conectividad real con Postgres y MinIO, no solo que el
+        proceso este vivo
       produces:
       - application/json
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
           schema:
             additionalProperties:
               type: string

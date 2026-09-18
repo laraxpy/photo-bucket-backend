@@ -9,6 +9,7 @@ import (
 	"github.com/laraxpy/photo-bucket-backend/internal/database"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/file"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/folder"
+	"github.com/laraxpy/photo-bucket-backend/internal/handler/health"
 	"github.com/laraxpy/photo-bucket-backend/internal/handler/user"
 	"github.com/laraxpy/photo-bucket-backend/internal/middleware"
 	"github.com/laraxpy/photo-bucket-backend/internal/router"
@@ -43,14 +44,15 @@ func main() {
 	folderHandler := folder.NewFolderHandler(folderService)
 	fileService := service.NewFileService(fileStore, folderStore, minioClient, cfg.MinioBucket)
 	fileHandler := file.NewFileHandler(fileService)
+	healthHandler := health.NewHealthHandler(db, minioClient, cfg.MinioBucket)
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLogger())
-	r.Use(middleware.CORS())
+	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.ErrorHandler())
 	r.Use(middleware.RateLimiter())
-	router.RegisterRoutes(r, userHandler, fileHandler, folderHandler, cfg.JWTSecret)
+	router.RegisterRoutes(r, userHandler, fileHandler, folderHandler, healthHandler, cfg.JWTSecret)
 	srv := server.New(r, cfg)
 	server.Run(srv)
 }

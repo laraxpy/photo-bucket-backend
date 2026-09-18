@@ -40,7 +40,7 @@ const docTemplate = `{
                     {
                         "type": "integer",
                         "default": 20,
-                        "description": "Cantidad maxima de resultados",
+                        "description": "Cantidad maxima de resultados (1-100)",
                         "name": "limit",
                         "in": "query"
                     },
@@ -643,6 +643,7 @@ const docTemplate = `{
         },
         "/health": {
             "get": {
+                "description": "Verifica conectividad real con Postgres y MinIO, no solo que el proceso este vivo",
                 "produces": [
                     "application/json"
                 ],
@@ -653,6 +654,15 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
