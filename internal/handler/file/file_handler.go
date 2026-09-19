@@ -213,14 +213,15 @@ func (h *FileHandler) DownloadURL(c *gin.Context) {
 // ThumbnailURL godoc
 //
 //	@Summary		Obtener URL de la miniatura
-//	@Description	Genera una URL firmada de MinIO valida por 15 minutos para la miniatura del archivo. Si el archivo no tiene miniatura (tipo no soportado o fallo al generarla), devuelve la URL del original como fallback.
+//	@Description	Genera una URL firmada de MinIO valida por 15 minutos para la miniatura del archivo. Si la variante pedida no existe (tipo no soportado o fallo al generarla), cae a una variante mas chica y despues al original.
 //	@Tags			files
 //	@Produce		json
-//	@Param			id	path		string	true	"ID del archivo"
-//	@Success		200	{object}	map[string]string	"url"
-//	@Failure		400	{object}	apperror.ErrorResponse
-//	@Failure		401	{object}	apperror.ErrorResponse
-//	@Failure		404	{object}	apperror.ErrorResponse
+//	@Param			id		path		string	true	"ID del archivo"
+//	@Param			size	query		string	false	"Variante: 'small' (listados) o 'medium' (photo viewer)"	Enums(small, medium)	default(small)
+//	@Success		200		{object}	map[string]string	"url"
+//	@Failure		400		{object}	apperror.ErrorResponse
+//	@Failure		401		{object}	apperror.ErrorResponse
+//	@Failure		404		{object}	apperror.ErrorResponse
 //	@Security		BearerAuth
 //	@Router			/files/{id}/thumbnail-url [get]
 func (h *FileHandler) ThumbnailURL(c *gin.Context) {
@@ -236,7 +237,18 @@ func (h *FileHandler) ThumbnailURL(c *gin.Context) {
 		return
 	}
 
-	thumbnailURL, err := h.fileService.ThumbnailURL(c.Request.Context(), userID, id)
+	var size service.ThumbnailSize
+	switch c.DefaultQuery("size", "small") {
+	case "small":
+		size = service.ThumbnailSizeSmall
+	case "medium":
+		size = service.ThumbnailSizeMedium
+	default:
+		c.Error(apperror.BadRequest("size must be 'small' or 'medium'", nil))
+		return
+	}
+
+	thumbnailURL, err := h.fileService.ThumbnailURL(c.Request.Context(), userID, id, size)
 	if err != nil {
 		c.Error(err)
 		return

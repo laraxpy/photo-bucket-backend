@@ -12,38 +12,81 @@ import (
 )
 
 const (
-	thumbnailMaxDimension = 400
-	thumbnailContentType  = "image/jpeg"
-	thumbnailJPEGQuality  = 80
+	thumbnailSmallMaxDimension  = 200
+	thumbnailMediumMaxDimension = 800
+	thumbnailContentType        = "image/jpeg"
+	thumbnailJPEGQuality        = 80
 )
 
 var errThumbnailUnsupportedType = errors.New("content type not supported for thumbnails")
 
-var thumbnailableContentTypes = map[string]bool{
+var thumbnailableImageContentTypes = map[string]bool{
 	"image/jpeg": true,
 	"image/png":  true,
 	"image/gif":  true,
 }
 
-// generateThumbnail decodes an image and returns a JPEG-encoded thumbnail
-// that fits within thumbnailMaxDimension x thumbnailMaxDimension, preserving
-// aspect ratio. It returns errThumbnailUnsupportedType for content types
-// that aren't in thumbnailableContentTypes, so callers can skip thumbnail
-// generation instead of treating it as a real failure.
-func generateThumbnail(data []byte, contentType string) ([]byte, error) {
-	if !thumbnailableContentTypes[contentType] {
-		return nil, errThumbnailUnsupportedType
+var thumbnailableVideoContentTypes = map[string]bool{
+	"video/mp4": true,
+}
+
+// ThumbnailSet holds the two JPEG-encoded thumbnail variants generated for
+// an uploaded file: Small for list/grid views, Medium for a full photo
+// viewer.
+type ThumbnailSet struct {
+	Small  []byte
+	Medium []byte
+}
+
+// generateThumbnails decodes a single source image (directly for images, or
+// via a single ffmpeg-extracted frame for videos) and resizes it into both
+// thumbnail variants, so we never decode/extract twice. It returns
+// errThumbnailUnsupportedType for content types we don't know how to
+// generate a thumbnail for, so callers can skip thumbnail generation
+// instead of treating it as a real failure.
+func generateThumbnails(data []byte, contentType string) (ThumbnailSet, error) {
+	var src image.Image
+	switch {
+	case thumbnailableImageContentTypes[contentType]:
+		decoded, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return ThumbnailSet{}, err
+		}
+		src = decoded
+	case thumbnailableVideoContentTypes[contentType]:
+		frame, err := extractVideoFrame(data)
+		if err != nil {
+			return ThumbnailSet{}, err
+		}
+		decoded, _, err := image.Decode(bytes.NewReader(frame))
+		if err != nil {
+			return ThumbnailSet{}, err
+		}
+		src = decoded
+	default:
+		return ThumbnailSet{}, errThumbnailUnsupportedType
 	}
 
-	src, _, err := image.Decode(bytes.NewReader(data))
+	small, err := resizeToJPEG(src, thumbnailSmallMaxDimension)
 	if err != nil {
-		return nil, err
+		return ThumbnailSet{}, err
 	}
+	medium, err := resizeToJPEG(src, thumbnailMediumMaxDimension)
+	if err != nil {
+		return ThumbnailSet{}, err
+	}
+	return ThumbnailSet{Small: small, Medium: medium}, nil
+}
 
+func resizeToJPEG(src image.Image, maxDimension int) ([]byte, error) {
 	bounds := src.Bounds()
-	dstW, dstH := fitWithinSquare(bounds.Dx(), bounds.Dy(), thumbnailMaxDimension)
+	dstW, dstH := fitWithinSquare(bounds.Dx(), bounds.Dy(), maxDimension)
 	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
-	draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+	// ApproxBiLinear over CatmullRom: on a real ~50MP phone photo, CatmullRom
+	// took 2+ seconds per resize (x2, since we generate two variants), enough
+	// to trip the server's write timeout mid-upload. ApproxBiLinear is ~7x
+	// faster with no perceptible quality loss at thumbnail sizes.
+	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
 
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: thumbnailJPEGQuality}); err != nil {

@@ -109,7 +109,8 @@ Las carpetas son un árbol por usuario (metadata en Postgres). **MinIO no tiene 
   "sizeBytes": 12345,
   "width": 0,
   "height": 0,
-  "thumbnailObjectKey": "string | ausente",
+  "thumbnailSmallObjectKey": "string | ausente",
+  "thumbnailMediumObjectKey": "string | ausente",
   "status": "pending | uploaded | failed | deleted",
   "isPublic": false,
   "checksum": "",
@@ -120,7 +121,7 @@ Las carpetas son un árbol por usuario (metadata en Postgres). **MinIO no tiene 
 ```
 `width`, `height` y `checksum` existen en el modelo pero **no se calculan todavía** (siempre vienen en 0/vacío) — no confiar en esos campos hoy.
 
-`thumbnailObjectKey` viene ausente (omitido del JSON) si el archivo no tiene miniatura generada. **No usar este campo directamente** — es un detalle interno de almacenamiento; para mostrar la miniatura, usar siempre el endpoint `GET /files/:id/thumbnail-url` de la sección siguiente.
+`thumbnailSmallObjectKey`/`thumbnailMediumObjectKey` vienen ausentes (omitidos del JSON) si el archivo no tiene esa variante generada. **No usar estos campos directamente** — son un detalle interno de almacenamiento; para mostrar la miniatura, usar siempre el endpoint `GET /files/:id/thumbnail-url` de la sección siguiente.
 
 ### Subir un archivo
 ```
@@ -132,7 +133,15 @@ folderId: "uuid"          // opcional, form field (no query param). Vacío/omiti
 ```
 `201` → el `File` creado. `404` si `folderId` no existe o no es tuya.
 
-Si el archivo subido es una imagen (`image/jpeg`, `image/png` o `image/gif`), el backend genera automáticamente una **miniatura** (máximo 400x400px, manteniendo el aspecto) y la asocia al archivo. Para cualquier otro `contentType`, o si la generación falla por algún motivo, el archivo se sube igual — simplemente no vas a tener miniatura y `GET /files/:id/thumbnail-url` va a devolver la URL del original como fallback (ver más abajo).
+Se puede subir cualquier tipo de archivo (no hay una lista blanca de `contentType`). El backend genera automáticamente **dos variantes de miniatura** para:
+- Imágenes: `image/jpeg`, `image/png`, `image/gif`.
+- Video: `video/mp4` (un frame extraído a 0.5s del video, redimensionado igual que una foto). Por ahora es el único formato de video con miniatura — otros formatos de video (mov, webm, etc.) se suben bien, pero sin miniatura.
+
+Las dos variantes:
+- **`small`** (máx. 200x200px): para grillas/listados de la galería.
+- **`medium`** (máx. 800x800px): para el photo viewer (vista ampliada, no de pantalla completa del original).
+
+Para cualquier otro `contentType`, o si la generación falla por algún motivo, el archivo se sube igual — simplemente no vas a tener esas miniaturas y `GET /files/:id/thumbnail-url` va a hacer fallback (ver más abajo).
 
 ### Listar archivos
 ```
@@ -160,11 +169,18 @@ GET /files/:id/url
 ### Obtener una URL para la miniatura
 
 ```
-GET /files/:id/thumbnail-url
+GET /files/:id/thumbnail-url?size=small|medium
 ```
-`200` → `{ "url": "https://..." }` — misma mecánica que `/files/:id/url` (URL firmada, válida 15 minutos), pero apuntando a la miniatura (máx. 400x400px) en vez del original.
+`size` es opcional, default `small`. `400` si se manda un valor que no sea `small` ni `medium`.
 
-**Usar esto para las grillas/listados de la galería**, y reservar `GET /files/:id/url` (el original) para cuando el usuario abre/descarga la foto puntual — la miniatura pesa mucho menos y hace la lista más rápida. Si el archivo no tiene miniatura (no era una imagen soportada, o falló la generación), este mismo endpoint devuelve la URL del original como fallback, así que siempre es seguro llamarlo y usar lo que devuelva.
+`200` → `{ "url": "https://..." }` — misma mecánica que `/files/:id/url` (URL firmada, válida 15 minutos), pero apuntando a la miniatura pedida.
+
+**Uso recomendado por pantalla**:
+- **Grilla/listado de la galería** → `?size=small` (o sin `size`, es el default).
+- **Photo viewer** (vista ampliada de una foto) → `?size=medium`.
+- **Descarga del archivo por el cliente** → `GET /files/:id/url` (el original, sin este endpoint).
+
+**Fallback en cadena, siempre es seguro llamarlo**: si pedís `medium` y no existe, cae a `small`; si esa tampoco existe (archivo sin ninguna miniatura — tipo no soportado, o falló la generación), cae al original. Nunca vas a recibir un error por falta de miniatura, siempre una URL usable.
 
 ### Borrar un archivo
 ```
@@ -204,7 +220,7 @@ Cualquier error, de cualquier endpoint, tiene esta forma:
 
 - **Rate limit**: 30 requests/segundo por IP (in-memory, un solo proceso — no aplica bien si el backend corre en múltiples réplicas, pero para dev/single-instance está activo; configurable vía `RATE_LIMIT` en el `.env` del backend, formato `"<n>-S"`). Pasado el límite: `429 TOO_MANY_REQUEST`.
 - **Sin websockets/tiempo real**: todo es request/response. Si el frontend necesita "el archivo terminó de subir" en tiempo real para múltiples pestañas, no hay push del backend — hay que hacer polling manual.
-- **Upload síncrono**: `POST /files/upload` sube el archivo completo al backend y de ahí a MinIO (no hay presigned PUT todavía) — para archivos grandes, esperar que la request tarde proporcionalmente al tamaño y al ancho de banda del servidor, no es instantáneo ni paralelizable desde el cliente.
+- **Upload síncrono**: `POST /files/upload` sube el archivo completo al backend y de ahí a MinIO (no hay presigned PUT todavía) — para archivos grandes, esperar que la request tarde proporcionalmente al tamaño y al ancho de banda del servidor, no es instantáneo ni paralelizable desde el cliente. Los videos, al pesar más que una foto típica, van a tardar sensiblemente más en subir — el request no responde hasta que termina de subirse el original **y** de generarse las miniaturas. El servidor tolera hasta 60s por request para esto (fotos de 40-50MP de celulares modernos entran cómodas); pasado ese tiempo, la conexión se corta y el cliente ve un error de red o `500`.
 - **`POST /files/upload` es de a un archivo por request** — no hay endpoint de batch. Para subir varios archivos a la vez (ej. una galería completa), ver la sección siguiente.
 
 ### Subir varios archivos a la vez (evitando el 429)
@@ -224,8 +240,9 @@ Como el rate limit es por IP y `/files/upload` es un endpoint por archivo, dispa
 3. POST /folders {"name":"Viajes"}  → crear una carpeta (opcional)
 4. POST /files/upload (folderId=…)  → subir una foto
 5. GET  /files/list?folderId=…      → listar lo subido
-6. GET  /files/:id/thumbnail-url     → obtener la miniatura para la grilla de la galería
-6b. GET /files/:id/url               → obtener el original (al abrir/descargar una foto puntual)
+6. GET  /files/:id/thumbnail-url?size=small   → miniatura para la grilla de la galería
+6b. GET /files/:id/thumbnail-url?size=medium  → vista ampliada en el photo viewer
+6c. GET /files/:id/url                        → el original (solo al descargar una foto puntual)
 7. DELETE /files/:id                → borrar si hace falta
 8. POST /user/refresh {"refreshToken":…} → cuando el token expira (401), canjear el refreshToken por un par nuevo
 ```
