@@ -1,9 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -30,6 +33,7 @@ type FileService interface {
 	ListByUser(ctx context.Context, userID uuid.UUID, folderID *uuid.UUID, limit, offset int) ([]file.File, error)
 	GetByID(ctx context.Context, userID, id uuid.UUID) (*file.File, error)
 	DownloadURL(ctx context.Context, userID, id uuid.UUID) (string, error)
+	ThumbnailURL(ctx context.Context, userID, id uuid.UUID) (string, error)
 	Delete(ctx context.Context, userID, id uuid.UUID) error
 }
 type fileService struct {
@@ -54,8 +58,13 @@ func (s *fileService) Upload(ctx context.Context, userId uuid.UUID, folderID *uu
 		}
 	}
 
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+
 	objectKey := fmt.Sprintf("%s/%s", userId.String(), uuid.New().String())
-	_, err := s.minio.PutObject(ctx, s.bucketName, objectKey, reader, size, minio.PutObjectOptions{
+	_, err = s.minio.PutObject(ctx, s.bucketName, objectKey, bytes.NewReader(data), size, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
 	if err != nil {
@@ -71,10 +80,41 @@ func (s *fileService) Upload(ctx context.Context, userId uuid.UUID, folderID *uu
 		SizeBytes:    size,
 		Status:       file.FileStatusUploaded,
 	}
+
+	thumbnailKey, err := s.uploadThumbnail(ctx, objectKey, data, contentType)
+	switch {
+	case err == nil:
+		f.ThumbnailObjectKey = thumbnailKey
+	case errors.Is(err, errThumbnailUnsupportedType):
+		// expected: not every content type has a thumbnail generator
+	default:
+		slog.Warn("no se pudo generar la miniatura", "objectKey", objectKey, "contentType", contentType, "error", err)
+	}
+
 	if err := s.fileStore.Create(ctx, f); err != nil {
 		return nil, err
 	}
 	return f, nil
+}
+
+// uploadThumbnail generates and uploads a thumbnail for supported image
+// types, returning its object key. Returns errThumbnailUnsupportedType
+// (unwrapped by the caller via errors.Is) for content types we don't
+// generate thumbnails for; that's an expected skip, not a failure.
+func (s *fileService) uploadThumbnail(ctx context.Context, objectKey string, data []byte, contentType string) (string, error) {
+	thumbData, err := generateThumbnail(data, contentType)
+	if err != nil {
+		return "", err
+	}
+
+	thumbnailKey := "thumbnails/" + objectKey + ".jpg"
+	_, err = s.minio.PutObject(ctx, s.bucketName, thumbnailKey, bytes.NewReader(thumbData), int64(len(thumbData)), minio.PutObjectOptions{
+		ContentType: thumbnailContentType,
+	})
+	if err != nil {
+		return "", err
+	}
+	return thumbnailKey, nil
 }
 
 func (s *fileService) GetByID(ctx context.Context, userID, id uuid.UUID) (*file.File, error) {
@@ -101,6 +141,28 @@ func (s *fileService) DownloadURL(ctx context.Context, userID, id uuid.UUID) (st
 	return presignedURL.String(), nil
 }
 
+// ThumbnailURL returns a presigned URL for the file's thumbnail. Files
+// without a thumbnail (unsupported content type, or generation failed at
+// upload time) fall back to the original, so the frontend always gets a
+// usable preview URL.
+func (s *fileService) ThumbnailURL(ctx context.Context, userID, id uuid.UUID) (string, error) {
+	f, err := s.GetByID(ctx, userID, id)
+	if err != nil {
+		return "", err
+	}
+
+	key := f.ObjectKey
+	if f.ThumbnailObjectKey != "" {
+		key = f.ThumbnailObjectKey
+	}
+
+	presignedURL, err := s.minio.PresignedGetObject(ctx, f.BucketName, key, downloadURLExpiry, url.Values{})
+	if err != nil {
+		return "", apperror.Internal(err)
+	}
+	return presignedURL.String(), nil
+}
+
 func (s *fileService) Delete(ctx context.Context, userID, id uuid.UUID) error {
 	f, err := s.GetByID(ctx, userID, id)
 	if err != nil {
@@ -109,6 +171,12 @@ func (s *fileService) Delete(ctx context.Context, userID, id uuid.UUID) error {
 
 	if err := s.minio.RemoveObject(ctx, f.BucketName, f.ObjectKey, minio.RemoveObjectOptions{}); err != nil {
 		return apperror.Internal(err)
+	}
+
+	if f.ThumbnailObjectKey != "" {
+		if err := s.minio.RemoveObject(ctx, f.BucketName, f.ThumbnailObjectKey, minio.RemoveObjectOptions{}); err != nil {
+			slog.Warn("no se pudo borrar la miniatura", "thumbnailObjectKey", f.ThumbnailObjectKey, "error", err)
+		}
 	}
 
 	return s.fileStore.Delete(ctx, f.ID)
