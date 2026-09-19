@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/jpeg"
 	"testing"
+	"time"
 )
 
 func TestFitWithinSquare(t *testing.T) {
@@ -77,6 +78,27 @@ func TestGenerateThumbnails(t *testing.T) {
 		_, err := generateThumbnails([]byte("not a real jpeg"), "image/jpeg")
 		if err == nil {
 			t.Fatal("expected a decode error")
+		}
+	})
+
+	// Regression guard: a slow scaler on a large source image can eat the
+	// server's write timeout on real high-res phone photos (see the
+	// ApproxBiLinear comment in resizeToJPEG). Budget is generous to allow
+	// for slower CI machines while still catching an accidental regression
+	// to a much slower algorithm.
+	t.Run("stays fast on a large source image", func(t *testing.T) {
+		img := image.NewYCbCr(image.Rect(0, 0, 8000, 6000), image.YCbCrSubsampleRatio420)
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+			t.Fatalf("failed to encode source JPEG: %v", err)
+		}
+
+		start := time.Now()
+		if _, err := generateThumbnails(buf.Bytes(), "image/jpeg"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Errorf("generateThumbnails took %v for an 8000x6000 image, want under 2s", elapsed)
 		}
 	})
 }

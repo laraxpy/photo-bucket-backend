@@ -82,7 +82,11 @@ func resizeToJPEG(src image.Image, maxDimension int) ([]byte, error) {
 	bounds := src.Bounds()
 	dstW, dstH := fitWithinSquare(bounds.Dx(), bounds.Dy(), maxDimension)
 	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
-	draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+	// ApproxBiLinear over CatmullRom: on a real ~50MP phone photo, CatmullRom
+	// took 2+ seconds per resize (x2, since we generate two variants), enough
+	// to trip the server's write timeout mid-upload. ApproxBiLinear is ~7x
+	// faster with no perceptible quality loss at thumbnail sizes.
+	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
 
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: thumbnailJPEGQuality}); err != nil {
