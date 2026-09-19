@@ -76,7 +76,7 @@ func TestUserService_Register(t *testing.T) {
 
 	t.Run("registers a new user with a hashed password", func(t *testing.T) {
 		store := newFakeUserStore()
-		svc := NewUserService(store, "secret")
+		svc := NewUserService(store, newFakeRefreshTokenStore(), "secret")
 
 		u, err := svc.Register(ctx, "Ana", "ana@example.com", "password123")
 		if err != nil {
@@ -89,7 +89,7 @@ func TestUserService_Register(t *testing.T) {
 
 	t.Run("rejects a duplicate email", func(t *testing.T) {
 		store := newFakeUserStore()
-		svc := NewUserService(store, "secret")
+		svc := NewUserService(store, newFakeRefreshTokenStore(), "secret")
 
 		if _, err := svc.Register(ctx, "Ana", "ana@example.com", "password123"); err != nil {
 			t.Fatalf("unexpected error on first register: %v", err)
@@ -108,20 +108,23 @@ func TestUserService_Login(t *testing.T) {
 	ctx := context.Background()
 	const secret = "top-secret"
 
-	t.Run("returns a valid JWT on correct credentials", func(t *testing.T) {
+	t.Run("returns a valid JWT and refresh token on correct credentials", func(t *testing.T) {
 		store := newFakeUserStore()
-		svc := NewUserService(store, secret)
+		svc := NewUserService(store, newFakeRefreshTokenStore(), secret)
 		registered, err := svc.Register(ctx, "Ana", "ana@example.com", "password123")
 		if err != nil {
 			t.Fatalf("unexpected error registering: %v", err)
 		}
 
-		token, err := svc.Login(ctx, "ana@example.com", "password123")
+		tokens, err := svc.Login(ctx, "ana@example.com", "password123")
 		if err != nil {
 			t.Fatalf("unexpected error logging in: %v", err)
 		}
+		if tokens.RefreshToken == "" {
+			t.Fatal("expected a non-empty refresh token")
+		}
 
-		parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
+		parsed, err := jwt.Parse(tokens.AccessToken, func(t *jwt.Token) (any, error) {
 			return []byte(secret), nil
 		})
 		if err != nil || !parsed.Valid {
@@ -135,7 +138,7 @@ func TestUserService_Login(t *testing.T) {
 
 	t.Run("rejects a wrong password", func(t *testing.T) {
 		store := newFakeUserStore()
-		svc := NewUserService(store, secret)
+		svc := NewUserService(store, newFakeRefreshTokenStore(), secret)
 		if _, err := svc.Register(ctx, "Ana", "ana@example.com", "password123"); err != nil {
 			t.Fatalf("unexpected error registering: %v", err)
 		}
@@ -151,9 +154,71 @@ func TestUserService_Login(t *testing.T) {
 
 	t.Run("rejects an unknown email without revealing it doesn't exist", func(t *testing.T) {
 		store := newFakeUserStore()
-		svc := NewUserService(store, secret)
+		svc := NewUserService(store, newFakeRefreshTokenStore(), secret)
 
 		_, err := svc.Login(ctx, "ghost@example.com", "password123")
+		if appErr := apperror.From(err); appErr.Code != apperror.CodeUnauthorized {
+			t.Errorf("Code = %v, want %v", appErr.Code, apperror.CodeUnauthorized)
+		}
+	})
+}
+
+func TestUserService_Refresh(t *testing.T) {
+	ctx := context.Background()
+	const secret = "top-secret"
+
+	t.Run("exchanges a valid refresh token for a new token pair", func(t *testing.T) {
+		store := newFakeUserStore()
+		svc := NewUserService(store, newFakeRefreshTokenStore(), secret)
+		if _, err := svc.Register(ctx, "Ana", "ana@example.com", "password123"); err != nil {
+			t.Fatalf("unexpected error registering: %v", err)
+		}
+		original, err := svc.Login(ctx, "ana@example.com", "password123")
+		if err != nil {
+			t.Fatalf("unexpected error logging in: %v", err)
+		}
+
+		refreshed, err := svc.Refresh(ctx, original.RefreshToken)
+		if err != nil {
+			t.Fatalf("unexpected error refreshing: %v", err)
+		}
+		if refreshed.AccessToken == "" || refreshed.RefreshToken == "" {
+			t.Fatal("expected a new access token and refresh token")
+		}
+		if refreshed.RefreshToken == original.RefreshToken {
+			t.Error("expected the refresh token to rotate on use")
+		}
+	})
+
+	t.Run("rejects an already-used (rotated) refresh token", func(t *testing.T) {
+		store := newFakeUserStore()
+		svc := NewUserService(store, newFakeRefreshTokenStore(), secret)
+		if _, err := svc.Register(ctx, "Ana", "ana@example.com", "password123"); err != nil {
+			t.Fatalf("unexpected error registering: %v", err)
+		}
+		original, err := svc.Login(ctx, "ana@example.com", "password123")
+		if err != nil {
+			t.Fatalf("unexpected error logging in: %v", err)
+		}
+
+		if _, err := svc.Refresh(ctx, original.RefreshToken); err != nil {
+			t.Fatalf("unexpected error on first refresh: %v", err)
+		}
+
+		_, err = svc.Refresh(ctx, original.RefreshToken)
+		if err == nil {
+			t.Fatal("expected an error reusing a rotated refresh token")
+		}
+		if appErr := apperror.From(err); appErr.Code != apperror.CodeUnauthorized {
+			t.Errorf("Code = %v, want %v", appErr.Code, apperror.CodeUnauthorized)
+		}
+	})
+
+	t.Run("rejects an unknown refresh token", func(t *testing.T) {
+		store := newFakeUserStore()
+		svc := NewUserService(store, newFakeRefreshTokenStore(), secret)
+
+		_, err := svc.Refresh(ctx, "not-a-real-token")
 		if appErr := apperror.From(err); appErr.Code != apperror.CodeUnauthorized {
 			t.Errorf("Code = %v, want %v", appErr.Code, apperror.CodeUnauthorized)
 		}

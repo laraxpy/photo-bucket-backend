@@ -50,12 +50,12 @@ func (h *UserHandler) Register(c *gin.Context) {
 // Login godoc
 //
 //	@Summary		Iniciar sesion
-//	@Description	Valida las credenciales y devuelve un token JWT
+//	@Description	Valida las credenciales y devuelve un token JWT junto con un refresh token
 //	@Tags			users
 //	@Accept			json
 //	@Produce		json
 //	@Param			request	body		LoginRequest	true	"Credenciales"
-//	@Success		200		{object}	map[string]string	"token"
+//	@Success		200		{object}	TokenResponse
 //	@Failure		400		{object}	apperror.ErrorResponse
 //	@Failure		401		{object}	apperror.ErrorResponse
 //	@Router			/user/login [post]
@@ -65,11 +65,38 @@ func (h *UserHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := h.userService.Login(c.Request.Context(), req.Email, req.Password)
+	tokens, err := h.userService.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
 		c.Error(err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	c.JSON(http.StatusOK, TokenResponse{Token: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
+}
+
+// Refresh godoc
+//
+//	@Summary		Renovar sesion
+//	@Description	Cambia un refresh token valido (y no usado) por un nuevo par de tokens
+//	@Tags			users
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		RefreshRequest	true	"Refresh token"
+//	@Success		200		{object}	TokenResponse
+//	@Failure		400		{object}	apperror.ErrorResponse
+//	@Failure		401		{object}	apperror.ErrorResponse
+//	@Router			/user/refresh [post]
+func (h *UserHandler) Refresh(c *gin.Context) {
+	var req RefreshRequest
+	if !httpx.BindAndValidate(c, &req) {
+		return
+	}
+
+	tokens, err := h.userService.Refresh(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, TokenResponse{Token: tokens.AccessToken, RefreshToken: tokens.RefreshToken})
 }
