@@ -12,6 +12,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o server ./main.go
 # Etapa 2: imagen final
 FROM alpine:latest
 
+RUN apk add --no-cache ffmpeg
+
 WORKDIR /app
 
 COPY --from=builder /app/server .

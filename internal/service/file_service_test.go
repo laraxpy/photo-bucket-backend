@@ -161,6 +161,22 @@ func TestFileService_Upload(t *testing.T) {
 		}
 	})
 
+	t.Run("generates and uploads a thumbnail for a video", func(t *testing.T) {
+		videoData := newTestMP4(t)
+		svc, _, _, minioClient := newTestFileService()
+
+		f, err := svc.Upload(ctx, userID, nil, bytes.NewReader(videoData), "clip.mp4", "video/mp4", int64(len(videoData)))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if f.ThumbnailObjectKey == "" {
+			t.Fatal("expected a thumbnail object key")
+		}
+		if minioClient.putObjectCalls != 2 {
+			t.Fatalf("PutObject calls = %d, want 2 (original + thumbnail)", minioClient.putObjectCalls)
+		}
+	})
+
 	t.Run("upload still succeeds when the image data can't be decoded", func(t *testing.T) {
 		svc, files, _, minioClient := newTestFileService()
 

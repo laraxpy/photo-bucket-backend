@@ -132,7 +132,11 @@ folderId: "uuid"          // opcional, form field (no query param). Vacío/omiti
 ```
 `201` → el `File` creado. `404` si `folderId` no existe o no es tuya.
 
-Si el archivo subido es una imagen (`image/jpeg`, `image/png` o `image/gif`), el backend genera automáticamente una **miniatura** (máximo 400x400px, manteniendo el aspecto) y la asocia al archivo. Para cualquier otro `contentType`, o si la generación falla por algún motivo, el archivo se sube igual — simplemente no vas a tener miniatura y `GET /files/:id/thumbnail-url` va a devolver la URL del original como fallback (ver más abajo).
+Se puede subir cualquier tipo de archivo (no hay una lista blanca de `contentType`). El backend genera automáticamente una **miniatura** (máximo 400x400px, manteniendo el aspecto) para:
+- Imágenes: `image/jpeg`, `image/png`, `image/gif`.
+- Video: `video/mp4` (un frame extraído a 0.5s del video, redimensionado igual que una foto). Por ahora es el único formato de video con miniatura — otros formatos de video (mov, webm, etc.) se suben bien, pero sin miniatura.
+
+Para cualquier otro `contentType`, o si la generación falla por algún motivo, el archivo se sube igual — simplemente no vas a tener miniatura y `GET /files/:id/thumbnail-url` va a devolver la URL del original como fallback (ver más abajo).
 
 ### Listar archivos
 ```
@@ -204,7 +208,7 @@ Cualquier error, de cualquier endpoint, tiene esta forma:
 
 - **Rate limit**: 30 requests/segundo por IP (in-memory, un solo proceso — no aplica bien si el backend corre en múltiples réplicas, pero para dev/single-instance está activo; configurable vía `RATE_LIMIT` en el `.env` del backend, formato `"<n>-S"`). Pasado el límite: `429 TOO_MANY_REQUEST`.
 - **Sin websockets/tiempo real**: todo es request/response. Si el frontend necesita "el archivo terminó de subir" en tiempo real para múltiples pestañas, no hay push del backend — hay que hacer polling manual.
-- **Upload síncrono**: `POST /files/upload` sube el archivo completo al backend y de ahí a MinIO (no hay presigned PUT todavía) — para archivos grandes, esperar que la request tarde proporcionalmente al tamaño y al ancho de banda del servidor, no es instantáneo ni paralelizable desde el cliente.
+- **Upload síncrono**: `POST /files/upload` sube el archivo completo al backend y de ahí a MinIO (no hay presigned PUT todavía) — para archivos grandes, esperar que la request tarde proporcionalmente al tamaño y al ancho de banda del servidor, no es instantáneo ni paralelizable desde el cliente. Los videos, al pesar más que una foto típica, van a tardar sensiblemente más en subir — el request no responde hasta que termina de subirse el original **y** de generarse la miniatura.
 - **`POST /files/upload` es de a un archivo por request** — no hay endpoint de batch. Para subir varios archivos a la vez (ej. una galería completa), ver la sección siguiente.
 
 ### Subir varios archivos a la vez (evitando el 429)

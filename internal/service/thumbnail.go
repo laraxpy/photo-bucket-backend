@@ -19,27 +19,46 @@ const (
 
 var errThumbnailUnsupportedType = errors.New("content type not supported for thumbnails")
 
-var thumbnailableContentTypes = map[string]bool{
+var thumbnailableImageContentTypes = map[string]bool{
 	"image/jpeg": true,
 	"image/png":  true,
 	"image/gif":  true,
 }
 
-// generateThumbnail decodes an image and returns a JPEG-encoded thumbnail
-// that fits within thumbnailMaxDimension x thumbnailMaxDimension, preserving
-// aspect ratio. It returns errThumbnailUnsupportedType for content types
-// that aren't in thumbnailableContentTypes, so callers can skip thumbnail
-// generation instead of treating it as a real failure.
+var thumbnailableVideoContentTypes = map[string]bool{
+	"video/mp4": true,
+}
+
+// generateThumbnail returns a JPEG-encoded thumbnail that fits within
+// thumbnailMaxDimension x thumbnailMaxDimension, preserving aspect ratio.
+// For images it decodes the data directly; for videos it extracts a single
+// frame via ffmpeg first. It returns errThumbnailUnsupportedType for content
+// types we don't know how to generate a thumbnail for, so callers can skip
+// thumbnail generation instead of treating it as a real failure.
 func generateThumbnail(data []byte, contentType string) ([]byte, error) {
-	if !thumbnailableContentTypes[contentType] {
+	switch {
+	case thumbnailableImageContentTypes[contentType]:
+		src, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		return resizeToJPEG(src)
+	case thumbnailableVideoContentTypes[contentType]:
+		frame, err := extractVideoFrame(data)
+		if err != nil {
+			return nil, err
+		}
+		src, _, err := image.Decode(bytes.NewReader(frame))
+		if err != nil {
+			return nil, err
+		}
+		return resizeToJPEG(src)
+	default:
 		return nil, errThumbnailUnsupportedType
 	}
+}
 
-	src, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-
+func resizeToJPEG(src image.Image) ([]byte, error) {
 	bounds := src.Bounds()
 	dstW, dstH := fitWithinSquare(bounds.Dx(), bounds.Dy(), thumbnailMaxDimension)
 	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
