@@ -210,6 +210,40 @@ func (h *FileHandler) DownloadURL(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"url": downloadURL})
 }
 
+// ThumbnailURL godoc
+//
+//	@Summary		Obtener URL de la miniatura
+//	@Description	Genera una URL firmada de MinIO valida por 15 minutos para la miniatura del archivo. Si el archivo no tiene miniatura (tipo no soportado o fallo al generarla), devuelve la URL del original como fallback.
+//	@Tags			files
+//	@Produce		json
+//	@Param			id	path		string	true	"ID del archivo"
+//	@Success		200	{object}	map[string]string	"url"
+//	@Failure		400	{object}	apperror.ErrorResponse
+//	@Failure		401	{object}	apperror.ErrorResponse
+//	@Failure		404	{object}	apperror.ErrorResponse
+//	@Security		BearerAuth
+//	@Router			/files/{id}/thumbnail-url [get]
+func (h *FileHandler) ThumbnailURL(c *gin.Context) {
+	userID, err := httpx.UserIDFromContext(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.Error(apperror.BadRequest("invalid file id", err))
+		return
+	}
+
+	thumbnailURL, err := h.fileService.ThumbnailURL(c.Request.Context(), userID, id)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"url": thumbnailURL})
+}
+
 // Delete godoc
 //
 //	@Summary		Eliminar un archivo

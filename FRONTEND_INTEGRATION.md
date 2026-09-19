@@ -109,6 +109,7 @@ Las carpetas son un árbol por usuario (metadata en Postgres). **MinIO no tiene 
   "sizeBytes": 12345,
   "width": 0,
   "height": 0,
+  "thumbnailObjectKey": "string | ausente",
   "status": "pending | uploaded | failed | deleted",
   "isPublic": false,
   "checksum": "",
@@ -118,6 +119,8 @@ Las carpetas son un árbol por usuario (metadata en Postgres). **MinIO no tiene 
 }
 ```
 `width`, `height` y `checksum` existen en el modelo pero **no se calculan todavía** (siempre vienen en 0/vacío) — no confiar en esos campos hoy.
+
+`thumbnailObjectKey` viene ausente (omitido del JSON) si el archivo no tiene miniatura generada. **No usar este campo directamente** — es un detalle interno de almacenamiento; para mostrar la miniatura, usar siempre el endpoint `GET /files/:id/thumbnail-url` de la sección siguiente.
 
 ### Subir un archivo
 ```
@@ -129,11 +132,13 @@ folderId: "uuid"          // opcional, form field (no query param). Vacío/omiti
 ```
 `201` → el `File` creado. `404` si `folderId` no existe o no es tuya.
 
+Si el archivo subido es una imagen (`image/jpeg`, `image/png` o `image/gif`), el backend genera automáticamente una **miniatura** (máximo 400x400px, manteniendo el aspecto) y la asocia al archivo. Para cualquier otro `contentType`, o si la generación falla por algún motivo, el archivo se sube igual — simplemente no vas a tener miniatura y `GET /files/:id/thumbnail-url` va a devolver la URL del original como fallback (ver más abajo).
+
 ### Listar archivos
 ```
 GET /files/list?folderId=&limit=20&offset=0
 ```
-- `folderId` opcional: si se omite, trae archivos de **todas** las carpetas del usuario (no solo la raíz); si se pasa, filtra por esa carpeta.
+- `folderId` opcional: si se omite, trae solo los archivos de la **raíz** (sin carpeta); si se pasa, filtra por esa carpeta puntual.
 - `limit`: entero 1-100 (default 20). Fuera de rango → `400`.
 - `offset`: entero ≥ 0 (default 0). Negativo → `400`.
 - `200` → array de `File` (puede ser `[]`).
@@ -151,6 +156,15 @@ GET /files/:id/url
 `200` → `{ "url": "https://..." }`.
 
 **Esto es lo que hay que usar como `src` de una imagen o link de descarga** — es una URL firmada de MinIO, **válida por 15 minutos**. No se puede cachear indefinidamente: si el usuario deja la página abierta más de 15 minutos y la imagen se recarga, hay que volver a pedir la URL. Para una galería, lo más simple es pedir la URL justo antes de renderizar cada imagen (o refrescarla si falla la carga).
+
+### Obtener una URL para la miniatura
+
+```
+GET /files/:id/thumbnail-url
+```
+`200` → `{ "url": "https://..." }` — misma mecánica que `/files/:id/url` (URL firmada, válida 15 minutos), pero apuntando a la miniatura (máx. 400x400px) en vez del original.
+
+**Usar esto para las grillas/listados de la galería**, y reservar `GET /files/:id/url` (el original) para cuando el usuario abre/descarga la foto puntual — la miniatura pesa mucho menos y hace la lista más rápida. Si el archivo no tiene miniatura (no era una imagen soportada, o falló la generación), este mismo endpoint devuelve la URL del original como fallback, así que siempre es seguro llamarlo y usar lo que devuelva.
 
 ### Borrar un archivo
 ```
@@ -210,7 +224,8 @@ Como el rate limit es por IP y `/files/upload` es un endpoint por archivo, dispa
 3. POST /folders {"name":"Viajes"}  → crear una carpeta (opcional)
 4. POST /files/upload (folderId=…)  → subir una foto
 5. GET  /files/list?folderId=…      → listar lo subido
-6. GET  /files/:id/url              → obtener URL firmada por cada foto a mostrar
+6. GET  /files/:id/thumbnail-url     → obtener la miniatura para la grilla de la galería
+6b. GET /files/:id/url               → obtener el original (al abrir/descargar una foto puntual)
 7. DELETE /files/:id                → borrar si hace falta
 8. POST /user/refresh {"refreshToken":…} → cuando el token expira (401), canjear el refreshToken por un par nuevo
 ```
@@ -219,6 +234,6 @@ Como el rate limit es por IP y `/files/upload` es un endpoint por archivo, dispa
 
 - Recuperación de contraseña / cambio de email.
 - Compartir archivos o carpetas entre usuarios (`isPublic` existe en el modelo pero no tiene ningún efecto real hoy).
-- Miniaturas/thumbnails, ni metadata real de imagen (`width`/`height`).
+- Metadata real de imagen (`width`/`height`) — las miniaturas ya existen (ver sección 5), pero esos dos campos del modelo `File` siguen sin calcularse.
 - Búsqueda de archivos por nombre.
 - Logout / revocación manual de un refresh token (revocar todos los tokens de un usuario, invalidar sesiones desde otro dispositivo, etc.).
