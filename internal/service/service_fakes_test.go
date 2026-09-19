@@ -131,7 +131,7 @@ func (s *fakeFileStore) ListByUserID(ctx context.Context, userID uuid.UUID, fold
 		if f.UserID != userID {
 			continue
 		}
-		if folderID != nil && !sameUUIDPtr(f.FolderID, folderID) {
+		if !sameUUIDPtr(f.FolderID, folderID) {
 			continue
 		}
 		result = append(result, f)

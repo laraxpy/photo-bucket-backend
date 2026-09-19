@@ -67,6 +67,8 @@ func (s *gormFileStore) ListByUserID(ctx context.Context, userID uuid.UUID, fold
 	query := s.db.WithContext(ctx).Where("user_id = ?", userID)
 	if folderID != nil {
 		query = query.Where("folder_id = ?", *folderID)
+	} else {
+		query = query.Where("folder_id IS NULL")
 	}
 	err := query.
 		Order("created_at DESC").

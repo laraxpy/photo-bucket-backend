@@ -106,6 +106,55 @@ func TestFileService_Upload(t *testing.T) {
 	})
 }
 
+func TestFileService_ListByUser(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+
+	t.Run("root listing excludes files inside folders", func(t *testing.T) {
+		svc, _, folders, _ := newTestFileService()
+		folderID := uuid.New()
+		folders.folders[folderID] = folder.Folder{ID: folderID, UserID: userID, Name: "Viajes"}
+
+		root, err := svc.Upload(ctx, userID, nil, strings.NewReader("root"), "root.txt", "text/plain", 4)
+		if err != nil {
+			t.Fatalf("unexpected error uploading to root: %v", err)
+		}
+		if _, err := svc.Upload(ctx, userID, &folderID, strings.NewReader("inside"), "inside.txt", "text/plain", 6); err != nil {
+			t.Fatalf("unexpected error uploading to folder: %v", err)
+		}
+
+		files, err := svc.ListByUser(ctx, userID, nil, 20, 0)
+		if err != nil {
+			t.Fatalf("unexpected error listing: %v", err)
+		}
+		if len(files) != 1 || files[0].ID != root.ID {
+			t.Errorf("expected only the root file %v, got %v", root.ID, files)
+		}
+	})
+
+	t.Run("folder listing only returns files inside that folder", func(t *testing.T) {
+		svc, _, folders, _ := newTestFileService()
+		folderID := uuid.New()
+		folders.folders[folderID] = folder.Folder{ID: folderID, UserID: userID, Name: "Viajes"}
+
+		if _, err := svc.Upload(ctx, userID, nil, strings.NewReader("root"), "root.txt", "text/plain", 4); err != nil {
+			t.Fatalf("unexpected error uploading to root: %v", err)
+		}
+		inside, err := svc.Upload(ctx, userID, &folderID, strings.NewReader("inside"), "inside.txt", "text/plain", 6)
+		if err != nil {
+			t.Fatalf("unexpected error uploading to folder: %v", err)
+		}
+
+		files, err := svc.ListByUser(ctx, userID, &folderID, 20, 0)
+		if err != nil {
+			t.Fatalf("unexpected error listing: %v", err)
+		}
+		if len(files) != 1 || files[0].ID != inside.ID {
+			t.Errorf("expected only the folder file %v, got %v", inside.ID, files)
+		}
+	})
+}
+
 func TestFileService_DownloadURL(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
