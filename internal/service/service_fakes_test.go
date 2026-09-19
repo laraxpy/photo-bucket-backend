@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/laraxpy/photo-bucket-backend/internal/apperror"
 	"github.com/laraxpy/photo-bucket-backend/internal/model/file"
 	"github.com/laraxpy/photo-bucket-backend/internal/model/folder"
+	"github.com/laraxpy/photo-bucket-backend/internal/model/token"
 )
 
 // fakeFolderStore and fakeFileStore are in-memory stand-ins for store.FolderStore
@@ -187,4 +189,49 @@ func (s *fakeFileStore) CountByFolderID(ctx context.Context, folderID uuid.UUID)
 		}
 	}
 	return count, nil
+}
+
+type fakeRefreshTokenStore struct {
+	tokens map[uuid.UUID]token.RefreshToken
+	byHash map[string]uuid.UUID
+}
+
+func newFakeRefreshTokenStore() *fakeRefreshTokenStore {
+	return &fakeRefreshTokenStore{
+		tokens: make(map[uuid.UUID]token.RefreshToken),
+		byHash: make(map[string]uuid.UUID),
+	}
+}
+
+func (s *fakeRefreshTokenStore) Create(ctx context.Context, t *token.RefreshToken) error {
+	if t.ID == uuid.Nil {
+		t.ID = uuid.New()
+	}
+	s.tokens[t.ID] = *t
+	s.byHash[t.TokenHash] = t.ID
+	return nil
+}
+
+func (s *fakeRefreshTokenStore) GetByTokenHash(ctx context.Context, tokenHash string) (*token.RefreshToken, error) {
+	id, ok := s.byHash[tokenHash]
+	if !ok {
+		return nil, apperror.Unauthorized("invalid refresh token", nil)
+	}
+	t := s.tokens[id]
+	return &t, nil
+}
+
+func (s *fakeRefreshTokenStore) Revoke(ctx context.Context, id string) error {
+	tokenID, err := uuid.Parse(id)
+	if err != nil {
+		return apperror.Internal(err)
+	}
+	t, ok := s.tokens[tokenID]
+	if !ok {
+		return apperror.NotFound("refresh token not found", nil)
+	}
+	now := time.Now()
+	t.RevokedAt = &now
+	s.tokens[tokenID] = t
+	return nil
 }
