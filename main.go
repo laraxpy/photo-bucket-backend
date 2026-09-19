@@ -52,7 +52,7 @@ func main() {
 	r.Use(middleware.RequestLogger())
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.ErrorHandler())
-	r.Use(middleware.RateLimiter())
+	r.Use(middleware.RateLimiter(cfg.RateLimit))
 	router.RegisterRoutes(r, userHandler, fileHandler, folderHandler, healthHandler, cfg.JWTSecret)
 	srv := server.New(r, cfg)
 	server.Run(srv)

@@ -11,14 +11,15 @@ import (
 var defaultAllowedOrigins = []string{"http://localhost:4000"}
 
 type Config struct {
-	Port            string
-	DatabaseURL     string
-	MinioEndpoint   string
-	MinioAccessKey  string
-	MinioSecretKey  string
-	MinioBucket     string
-	JWTSecret       string
-	AllowedOrigins  []string
+	Port           string
+	DatabaseURL    string
+	MinioEndpoint  string
+	MinioAccessKey string
+	MinioSecretKey string
+	MinioBucket    string
+	JWTSecret      string
+	AllowedOrigins []string
+	RateLimit      string
 }
 
 func Load() *Config {
@@ -35,6 +36,7 @@ func Load() *Config {
 		MinioBucket:    os.Getenv("MINIO_BUCKET"),
 		JWTSecret:      os.Getenv("JWT_SECRET"),
 		AllowedOrigins: parseOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
+		RateLimit:      os.Getenv("RATE_LIMIT"),
 	}
 }
 

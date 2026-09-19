@@ -188,9 +188,19 @@ Cualquier error, de cualquier endpoint, tiene esta forma:
 
 ## 7. Límites a tener en cuenta
 
-- **Rate limit**: 10 requests/segundo por IP (in-memory, un solo proceso — no aplica bien si el backend corre en múltiples réplicas, pero para dev/single-instance está activo). Pasado el límite: `429 TOO_MANY_REQUEST`.
+- **Rate limit**: 30 requests/segundo por IP (in-memory, un solo proceso — no aplica bien si el backend corre en múltiples réplicas, pero para dev/single-instance está activo; configurable vía `RATE_LIMIT` en el `.env` del backend, formato `"<n>-S"`). Pasado el límite: `429 TOO_MANY_REQUEST`.
 - **Sin websockets/tiempo real**: todo es request/response. Si el frontend necesita "el archivo terminó de subir" en tiempo real para múltiples pestañas, no hay push del backend — hay que hacer polling manual.
 - **Upload síncrono**: `POST /files/upload` sube el archivo completo al backend y de ahí a MinIO (no hay presigned PUT todavía) — para archivos grandes, esperar que la request tarde proporcionalmente al tamaño y al ancho de banda del servidor, no es instantáneo ni paralelizable desde el cliente.
+- **`POST /files/upload` es de a un archivo por request** — no hay endpoint de batch. Para subir varios archivos a la vez (ej. una galería completa), ver la sección siguiente.
+
+### Subir varios archivos a la vez (evitando el 429)
+
+Como el rate limit es por IP y `/files/upload` es un endpoint por archivo, disparar todas las subidas en paralelo sin control (`Promise.all` de N fotos) puede superar el límite y devolver `429` en varias de ellas. La forma recomendada de integrarlo:
+
+1. **Cola con concurrencia acotada**: subir de a 3-4 archivos en simultáneo como máximo (no todos a la vez), encolando el resto. Cualquier librería de cola (`p-limit`, `p-queue` en JS, o un semáforo casero) sirve.
+2. **Progreso por archivo**: cada request de `POST /files/upload` es un `multipart/form-data` normal — usá el evento de progreso nativo del cliente HTTP (`onUploadProgress` en axios, o `XMLHttpRequest.upload.onprogress`) para saber cuántos bytes de *ese* archivo ya se enviaron.
+3. **Progreso agregado (la barra de "43%" de la galería completa)**: se calcula 100% en el cliente, no lo devuelve el backend. Por ejemplo: `(archivos completados + progreso_bytes_del_archivo_actual / tamaño_del_archivo_actual) / total_archivos`.
+4. **Reintentos ante `429`**: si igual llega un `429` (ráfaga), esperar un instante corto (ej. 500ms-1s) y reintentar ese archivo puntual, no todo el batch.
 
 ## 8. Flujo típico end-to-end
 
