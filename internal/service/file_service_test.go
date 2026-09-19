@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,6 +38,14 @@ type fakeMinioClient struct {
 	putObjectErr    error
 	presignedErr    error
 	removeObjectErr error
+	getObjectErr    error
+	// getObjectErrForKey fails GetObject only for a specific key, to
+	// simulate a mid-stream failure on one file among several.
+	getObjectErrForKey string
+	// getObjectDelay simulates network latency before data starts
+	// transferring, so tests can force downloads to overlap enough to
+	// reliably observe concurrency being bounded.
+	getObjectDelay time.Duration
 
 	putObjectCalls    int
 	putObjectKeys     []string
@@ -44,6 +53,12 @@ type fakeMinioClient struct {
 	removeObjectCalls int
 	removedKeys       []string
 	lastRemovedKey    string
+
+	mu               sync.Mutex
+	objects          map[string][]byte
+	getObjectCalls   int
+	activeGetObjects int
+	maxActiveGet     int
 }
 
 func (m *fakeMinioClient) PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
@@ -52,7 +67,77 @@ func (m *fakeMinioClient) PutObject(ctx context.Context, bucketName, objectName 
 	if m.putObjectErr != nil {
 		return minio.UploadInfo{}, m.putObjectErr
 	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return minio.UploadInfo{}, err
+	}
+	m.mu.Lock()
+	if m.objects == nil {
+		m.objects = make(map[string][]byte)
+	}
+	m.objects[objectName] = data
+	m.mu.Unlock()
 	return minio.UploadInfo{Bucket: bucketName, Key: objectName}, nil
+}
+
+// GetObject serves back whatever was previously stored via PutObject for
+// that key, simulating a real object store in memory. It also tracks how
+// many calls are concurrently "in flight" (between entering and the caller
+// closing the returned reader), so tests can assert bounded concurrency.
+func (m *fakeMinioClient) GetObject(ctx context.Context, bucketName, objectName string, opts minio.GetObjectOptions) (io.ReadCloser, error) {
+	m.mu.Lock()
+	m.getObjectCalls++
+	m.activeGetObjects++
+	if m.activeGetObjects > m.maxActiveGet {
+		m.maxActiveGet = m.activeGetObjects
+	}
+	m.mu.Unlock()
+
+	if m.getObjectDelay > 0 {
+		time.Sleep(m.getObjectDelay)
+	}
+
+	if m.getObjectErr != nil {
+		m.releaseGetObject()
+		return nil, m.getObjectErr
+	}
+	if m.getObjectErrForKey != "" && objectName == m.getObjectErrForKey {
+		m.releaseGetObject()
+		return nil, errors.New("simulated GetObject failure")
+	}
+
+	m.mu.Lock()
+	data := m.objects[objectName]
+	m.mu.Unlock()
+
+	return &countingReadCloser{r: bytes.NewReader(data), onClose: m.releaseGetObject}, nil
+}
+
+func (m *fakeMinioClient) releaseGetObject() {
+	m.mu.Lock()
+	m.activeGetObjects--
+	m.mu.Unlock()
+}
+
+// countingReadCloser calls onClose exactly once when Close is called, so the
+// fake's in-flight GetObject count stays accurate regardless of how many
+// times a caller (incorrectly) calls Close.
+type countingReadCloser struct {
+	r        io.Reader
+	onClose  func()
+	closed   bool
+	closeMux sync.Mutex
+}
+
+func (c *countingReadCloser) Read(p []byte) (int, error) { return c.r.Read(p) }
+func (c *countingReadCloser) Close() error {
+	c.closeMux.Lock()
+	defer c.closeMux.Unlock()
+	if !c.closed {
+		c.closed = true
+		c.onClose()
+	}
+	return nil
 }
 
 func (m *fakeMinioClient) PresignedGetObject(ctx context.Context, bucketName, objectName string, expiry time.Duration, reqParams url.Values) (*url.URL, error) {

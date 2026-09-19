@@ -45,7 +45,7 @@ func main() {
 	folderHandler := folder.NewFolderHandler(folderService)
 	fileService := service.NewFileService(fileStore, folderStore, minioClient, cfg.MinioBucket)
 	fileHandler := file.NewFileHandler(fileService)
-	healthHandler := health.NewHealthHandler(db, minioClient, cfg.MinioBucket)
+	healthHandler := health.NewHealthHandler(db, minioClient.Client, cfg.MinioBucket)
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
 	r.Use(gin.Recovery())

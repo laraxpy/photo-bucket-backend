@@ -24,6 +24,11 @@ const downloadURLExpiry = 15 * time.Minute
 // fake the MinIO interaction without a real server.
 type MinioClient interface {
 	PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
+	// GetObject returns io.ReadCloser rather than the SDK's concrete
+	// *minio.Object (which has no exported constructor and so can't be
+	// faked in tests) — see storage.Client for the real implementation's
+	// adapter.
+	GetObject(ctx context.Context, bucketName, objectName string, opts minio.GetObjectOptions) (io.ReadCloser, error)
 	PresignedGetObject(ctx context.Context, bucketName, objectName string, expiry time.Duration, reqParams url.Values) (*url.URL, error)
 	RemoveObject(ctx context.Context, bucketName, objectName string, opts minio.RemoveObjectOptions) error
 }
@@ -43,6 +48,16 @@ type FileService interface {
 	DownloadURL(ctx context.Context, userID, id uuid.UUID) (string, error)
 	ThumbnailURL(ctx context.Context, userID, id uuid.UUID, size ThumbnailSize) (string, error)
 	Delete(ctx context.Context, userID, id uuid.UUID) error
+
+	// ResolveFilesForZip validates ownership of every requested file (by
+	// explicit IDs and/or all files in a folder) before anything is
+	// streamed. Callers must run this — and only commit to writing a
+	// response — after it succeeds, so a bad ID fails clean with a JSON
+	// error instead of mid-stream.
+	ResolveFilesForZip(ctx context.Context, userID uuid.UUID, fileIDs []uuid.UUID, folderID *uuid.UUID) ([]file.File, error)
+	// StreamZip downloads the given (already-validated) files with bounded
+	// concurrency and writes them as a zip archive to w, in order.
+	StreamZip(ctx context.Context, files []file.File, w io.Writer) error
 }
 type fileService struct {
 	fileStore   store.FileStore

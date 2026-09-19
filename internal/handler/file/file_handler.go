@@ -2,8 +2,10 @@ package file
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -254,6 +256,82 @@ func (h *FileHandler) ThumbnailURL(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"url": thumbnailURL})
+}
+
+// DownloadZip godoc
+//
+//	@Summary		Descarga masiva en zip
+//	@Description	Arma un .zip en streaming con los archivos pedidos (por fileIds, por folderId, o ambos combinados) y lo devuelve como respuesta. Valida que todos los archivos existan y sean del usuario antes de escribir cualquier byte de la respuesta.
+//	@Tags			files
+//	@Accept			json
+//	@Produce		application/zip
+//	@Param			request	body	DownloadZipRequest	true	"Seleccion de archivos (al menos fileIds o folderId)"
+//	@Success		200		{file}	binary	"application/zip"
+//	@Failure		400		{object}	apperror.ErrorResponse
+//	@Failure		401		{object}	apperror.ErrorResponse
+//	@Failure		404		{object}	apperror.ErrorResponse
+//	@Security		BearerAuth
+//	@Router			/files/download-zip [post]
+func (h *FileHandler) DownloadZip(c *gin.Context) {
+	userID, err := httpx.UserIDFromContext(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	var req DownloadZipRequest
+	if !httpx.BindAndValidate(c, &req) {
+		return
+	}
+
+	fileIDs := make([]uuid.UUID, 0, len(req.FileIDs))
+	for _, idStr := range req.FileIDs {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			c.Error(apperror.BadRequest("invalid file id in fileIds", err))
+			return
+		}
+		fileIDs = append(fileIDs, id)
+	}
+
+	var folderID *uuid.UUID
+	if req.FolderID != "" {
+		parsed, err := uuid.Parse(req.FolderID)
+		if err != nil {
+			c.Error(apperror.BadRequest("invalid folderId", err))
+			return
+		}
+		folderID = &parsed
+	}
+
+	if len(fileIDs) == 0 && folderID == nil {
+		c.Error(apperror.BadRequest("must provide fileIds and/or folderId", nil))
+		return
+	}
+
+	// Fail-fast: resolve and validate ownership of every file BEFORE
+	// committing to a response. Once we write headers/status below, a
+	// failure can no longer be reported as a clean JSON error.
+	files, err := h.fileService.ResolveFilesForZip(c.Request.Context(), userID, fileIDs, folderID)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	// A bulk zip can legitimately run past the server's default write
+	// timeout depending on how many/how large the files are; extend it
+	// instead of racing an arbitrary number of files against a fixed clock.
+	if rc := http.NewResponseController(c.Writer); rc != nil {
+		_ = rc.SetWriteDeadline(time.Time{})
+	}
+
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", `attachment; filename="download.zip"`)
+	c.Status(http.StatusOK)
+
+	if err := h.fileService.StreamZip(c.Request.Context(), files, c.Writer); err != nil {
+		slog.Error("fallo el streaming del zip de descarga masiva", "error", err)
+	}
 }
 
 // Delete godoc

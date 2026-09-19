@@ -188,6 +188,24 @@ DELETE /files/:id
 ```
 `204` si se borró (borra el objeto real de MinIO, no es reversible). `404` si no existe o no es tuyo.
 
+### Descarga masiva (zip)
+```
+POST /files/download-zip
+Content-Type: application/json
+
+{
+  "fileIds": ["uuid", "..."],   // opcional
+  "folderId": "uuid"             // opcional
+}
+```
+Hay que mandar `fileIds`, `folderId`, o ambos — el resultado es la unión de los dos (sin duplicados si un archivo está en los dos conjuntos). `folderId` trae **todos** los archivos de esa carpeta puntual (no recursivo a subcarpetas).
+
+`200` → el archivo `.zip` en streaming (`Content-Type: application/zip`, `Content-Disposition: attachment`), con los archivos originales (no las miniaturas) usando su `originalName` como nombre dentro del zip. Si dos archivos seleccionados tienen el mismo nombre (ej. la misma foto subida a dos carpetas distintas), el segundo se renombra dentro del zip como `nombre (1).ext`, `nombre (2).ext`, etc. para no pisarse.
+
+`400` si no se manda `fileIds` ni `folderId` (o ninguno de los dos trae archivos), o si algún id no es un UUID válido. `404` si algún `fileId` no existe o no es tuyo — **esto se valida antes de generar el zip**, así que un id inválido nunca te deja con una descarga a medias por ese motivo.
+
+**Importante para el cliente**: como el tamaño de la descarga depende de cuántos/qué tan grandes son los archivos pedidos (no hay límite de cantidad), tratá esta request como una descarga de archivo normal (dejar que el navegador/cliente HTTP maneje el stream a un archivo, no intentar cargar la respuesta completa en memoria antes de guardarla) y no le pongas un timeout corto — puede tardar bastante con selecciones grandes.
+
 ## 6. Formato de error (uniforme en toda la API)
 
 Cualquier error, de cualquier endpoint, tiene esta forma:

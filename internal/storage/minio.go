@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"time"
@@ -11,7 +12,20 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-func Connect(cfg *config.Config) *minio.Client {
+// Client wraps *minio.Client to adapt GetObject's return type from the
+// concrete *minio.Object to the generic io.ReadCloser. minio.Object has no
+// exported constructor, so service.MinioClient (used by tests to fake MinIO
+// without a real server) declares GetObject returning io.ReadCloser instead;
+// this wrapper is what makes the real client satisfy that interface.
+type Client struct {
+	*minio.Client
+}
+
+func (c *Client) GetObject(ctx context.Context, bucketName, objectName string, opts minio.GetObjectOptions) (io.ReadCloser, error) {
+	return c.Client.GetObject(ctx, bucketName, objectName, opts)
+}
+
+func Connect(cfg *config.Config) *Client {
 	client, err := minio.New(cfg.MinioEndpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.MinioAccessKey, cfg.MinioSecretKey, ""),
 		Secure: false,
@@ -37,5 +51,5 @@ func Connect(cfg *config.Config) *minio.Client {
 		slog.Info("minio bucket created", "bucket", cfg.MinioBucket)
 	}
 
-	return client
+	return &Client{Client: client}
 }
