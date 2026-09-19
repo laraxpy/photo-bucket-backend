@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	thumbnailMaxDimension = 400
-	thumbnailContentType  = "image/jpeg"
-	thumbnailJPEGQuality  = 80
+	thumbnailSmallMaxDimension  = 200
+	thumbnailMediumMaxDimension = 800
+	thumbnailContentType        = "image/jpeg"
+	thumbnailJPEGQuality        = 80
 )
 
 var errThumbnailUnsupportedType = errors.New("content type not supported for thumbnails")
@@ -29,38 +30,57 @@ var thumbnailableVideoContentTypes = map[string]bool{
 	"video/mp4": true,
 }
 
-// generateThumbnail returns a JPEG-encoded thumbnail that fits within
-// thumbnailMaxDimension x thumbnailMaxDimension, preserving aspect ratio.
-// For images it decodes the data directly; for videos it extracts a single
-// frame via ffmpeg first. It returns errThumbnailUnsupportedType for content
-// types we don't know how to generate a thumbnail for, so callers can skip
-// thumbnail generation instead of treating it as a real failure.
-func generateThumbnail(data []byte, contentType string) ([]byte, error) {
+// ThumbnailSet holds the two JPEG-encoded thumbnail variants generated for
+// an uploaded file: Small for list/grid views, Medium for a full photo
+// viewer.
+type ThumbnailSet struct {
+	Small  []byte
+	Medium []byte
+}
+
+// generateThumbnails decodes a single source image (directly for images, or
+// via a single ffmpeg-extracted frame for videos) and resizes it into both
+// thumbnail variants, so we never decode/extract twice. It returns
+// errThumbnailUnsupportedType for content types we don't know how to
+// generate a thumbnail for, so callers can skip thumbnail generation
+// instead of treating it as a real failure.
+func generateThumbnails(data []byte, contentType string) (ThumbnailSet, error) {
+	var src image.Image
 	switch {
 	case thumbnailableImageContentTypes[contentType]:
-		src, _, err := image.Decode(bytes.NewReader(data))
+		decoded, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
-			return nil, err
+			return ThumbnailSet{}, err
 		}
-		return resizeToJPEG(src)
+		src = decoded
 	case thumbnailableVideoContentTypes[contentType]:
 		frame, err := extractVideoFrame(data)
 		if err != nil {
-			return nil, err
+			return ThumbnailSet{}, err
 		}
-		src, _, err := image.Decode(bytes.NewReader(frame))
+		decoded, _, err := image.Decode(bytes.NewReader(frame))
 		if err != nil {
-			return nil, err
+			return ThumbnailSet{}, err
 		}
-		return resizeToJPEG(src)
+		src = decoded
 	default:
-		return nil, errThumbnailUnsupportedType
+		return ThumbnailSet{}, errThumbnailUnsupportedType
 	}
+
+	small, err := resizeToJPEG(src, thumbnailSmallMaxDimension)
+	if err != nil {
+		return ThumbnailSet{}, err
+	}
+	medium, err := resizeToJPEG(src, thumbnailMediumMaxDimension)
+	if err != nil {
+		return ThumbnailSet{}, err
+	}
+	return ThumbnailSet{Small: small, Medium: medium}, nil
 }
 
-func resizeToJPEG(src image.Image) ([]byte, error) {
+func resizeToJPEG(src image.Image, maxDimension int) ([]byte, error) {
 	bounds := src.Bounds()
-	dstW, dstH := fitWithinSquare(bounds.Dx(), bounds.Dy(), thumbnailMaxDimension)
+	dstW, dstH := fitWithinSquare(bounds.Dx(), bounds.Dy(), maxDimension)
 	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
 	draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
 

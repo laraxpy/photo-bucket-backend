@@ -32,38 +32,49 @@ func TestFitWithinSquare(t *testing.T) {
 	}
 }
 
-func TestGenerateThumbnail(t *testing.T) {
-	t.Run("scales a supported image down to fit the max dimension", func(t *testing.T) {
-		img := image.NewRGBA(image.Rect(0, 0, 1200, 600))
+func TestGenerateThumbnails(t *testing.T) {
+	t.Run("scales a supported image down to both variants", func(t *testing.T) {
+		img := image.NewRGBA(image.Rect(0, 0, 1600, 800))
 		var buf bytes.Buffer
 		if err := jpeg.Encode(&buf, img, nil); err != nil {
 			t.Fatalf("failed to encode source JPEG: %v", err)
 		}
 
-		thumbData, err := generateThumbnail(buf.Bytes(), "image/jpeg")
+		thumbs, err := generateThumbnails(buf.Bytes(), "image/jpeg")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		decoded, err := jpeg.Decode(bytes.NewReader(thumbData))
-		if err != nil {
-			t.Fatalf("thumbnail is not a valid JPEG: %v", err)
+		cases := []struct {
+			name string
+			data []byte
+			want int
+		}{
+			{"small", thumbs.Small, thumbnailSmallMaxDimension},
+			{"medium", thumbs.Medium, thumbnailMediumMaxDimension},
 		}
-		bounds := decoded.Bounds()
-		if bounds.Dx() != thumbnailMaxDimension || bounds.Dy() != thumbnailMaxDimension/2 {
-			t.Errorf("thumbnail size = %dx%d, want %dx%d", bounds.Dx(), bounds.Dy(), thumbnailMaxDimension, thumbnailMaxDimension/2)
+		for _, tc := range cases {
+			decoded, err := jpeg.Decode(bytes.NewReader(tc.data))
+			if err != nil {
+				t.Fatalf("%s thumbnail is not a valid JPEG: %v", tc.name, err)
+			}
+			bounds := decoded.Bounds()
+			wantH := tc.want / 2
+			if bounds.Dx() != tc.want || bounds.Dy() != wantH {
+				t.Errorf("%s thumbnail size = %dx%d, want %dx%d", tc.name, bounds.Dx(), bounds.Dy(), tc.want, wantH)
+			}
 		}
 	})
 
 	t.Run("rejects unsupported content types", func(t *testing.T) {
-		_, err := generateThumbnail([]byte("whatever"), "application/pdf")
+		_, err := generateThumbnails([]byte("whatever"), "application/pdf")
 		if err != errThumbnailUnsupportedType {
 			t.Errorf("err = %v, want %v", err, errThumbnailUnsupportedType)
 		}
 	})
 
 	t.Run("returns an error for undecodable image data", func(t *testing.T) {
-		_, err := generateThumbnail([]byte("not a real jpeg"), "image/jpeg")
+		_, err := generateThumbnails([]byte("not a real jpeg"), "image/jpeg")
 		if err == nil {
 			t.Fatal("expected a decode error")
 		}

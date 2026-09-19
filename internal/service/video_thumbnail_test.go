@@ -64,20 +64,22 @@ func TestExtractVideoFrame(t *testing.T) {
 	}
 }
 
-func TestGenerateThumbnail_Video(t *testing.T) {
+func TestGenerateThumbnails_Video(t *testing.T) {
 	videoData := newTestMP4(t)
 
-	thumbData, err := generateThumbnail(videoData, "video/mp4")
+	thumbs, err := generateThumbnails(videoData, "video/mp4")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	decoded, err := jpeg.Decode(bytes.NewReader(thumbData))
-	if err != nil {
-		t.Fatalf("thumbnail is not a valid JPEG: %v", err)
-	}
-	bounds := decoded.Bounds()
-	if bounds.Dx() > thumbnailMaxDimension || bounds.Dy() > thumbnailMaxDimension {
-		t.Errorf("thumbnail size = %dx%d, want within %dx%d", bounds.Dx(), bounds.Dy(), thumbnailMaxDimension, thumbnailMaxDimension)
+	for name, data := range map[string][]byte{"small": thumbs.Small, "medium": thumbs.Medium} {
+		decoded, err := jpeg.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("%s thumbnail is not a valid JPEG: %v", name, err)
+		}
+		bounds := decoded.Bounds()
+		if bounds.Dx() > thumbnailMediumMaxDimension || bounds.Dy() > thumbnailMediumMaxDimension {
+			t.Errorf("%s thumbnail size = %dx%d, want within %dx%d", name, bounds.Dx(), bounds.Dy(), thumbnailMediumMaxDimension, thumbnailMediumMaxDimension)
+		}
 	}
 }
